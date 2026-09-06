@@ -1,4 +1,5 @@
 import { supabase } from "@/lib/supabaseClient";
+import { wardFor } from "@/lib/gccWards";
 
 export type ComplaintStatus = "Unresolved" | "In Progress" | "Resolved";
 
@@ -19,20 +20,21 @@ export type Complaint = {
   reporter?: string;
   imageUrl?: string;
   fixImageUrl?: string;
-  wardId?: number;       // from complaints.ward_id (generated from area)
+  wardId?: number;
+  zoneNum?: number;
+  locationTrust?: "verified_gps" | "self_reported";
+  reporterFingerprint?: string;
 };
 
-// Find this existing type in src/data/civic.ts and add the history field:
 export type Ward = {
   id?: string | number;
   name: string;
   councillor: string;
   open: number;
-  resolutionRate: number | null;   // null = no complaints ever filed for this ward
+  resolutionRate: number | null;
   avgDays: number | null;
   slaBreaches: number;
   zone?: string;
-  // --- ADD THIS LINE ---
   history?: { date: string; resolutionRate: number; open: number }[];
 };
 
@@ -157,19 +159,15 @@ export const CHENNAI_PLACES: Place[] = [
 ];
 
 export const CHENNAI_CENTER: [number, number] = [13.0827, 80.2707];
-// Single source of truth for the SLA window.
-// MUST match INTERVAL '7 days' in refresh_ward_stats_from_complaints() in the DB.
 export const SLA_DAYS = 7;
 
 const MS_PER_DAY = 86_400_000;
 
-/** Whole days since the complaint was raised (uses created_at date at 00:00 local). */
 export function daysOpen(c: Pick<Complaint, "date">, now: Date = new Date()): number {
   const raised = new Date(`${c.date}T00:00:00`);
   return Math.max(0, Math.floor((now.getTime() - raised.getTime()) / MS_PER_DAY));
 }
 
-/** Whole days from raised → resolved; null if not resolved. */
 export function daysToResolve(c: Pick<Complaint, "date" | "resolvedAt">): number | null {
   if (!c.resolvedAt) return null;
   const raised = new Date(`${c.date}T00:00:00`);
@@ -177,17 +175,16 @@ export function daysToResolve(c: Pick<Complaint, "date" | "resolvedAt">): number
   return Math.max(0, Math.round((fixed.getTime() - raised.getTime()) / MS_PER_DAY));
 }
 
-/** True when an open complaint has exceeded the SLA window (same rule as the DB trigger). */
 export function isSlaBreached(c: Pick<Complaint, "date" | "status">, now: Date = new Date()): boolean {
   if (c.status === "Resolved") return false;
   return daysOpen(c, now) >= SLA_DAYS;
 }
 
-/** "5 Sep 2026" style label from YYYY-MM-DD or ISO timestamp. */
 export function formatDay(value: string): string {
   const d = new Date(value.length === 10 ? `${value}T00:00:00` : value);
   return d.toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" });
 }
+
 export const STATUS_COLOR: Record<ComplaintStatus, string> = {
   Unresolved: "#dc2626",
   "In Progress": "#eab308",
@@ -219,12 +216,17 @@ type DbComplaint = {
   fix_photo_url: string | null;
   area: string;
   created_at: string;
+  ward_id?: number | null;
+  zone_num?: number | null;
+  location_trust?: string | null;
+  reporter_fingerprint?: string | null;
+  resolved_at?: string | null;
+  fixed_at?: string | null;
 };
 
-function fromDb(row: any): Complaint {
+function fromDb(row: DbComplaint): Complaint {
   const statusRaw = row.status ?? "Unresolved";
-  const status =
-    statusRaw === "Pending Audit" ? "In Progress" : statusRaw;
+  const status = statusRaw === "Pending Audit" ? "In Progress" : (statusRaw as ComplaintStatus);
 
   return {
     id: String(row.id),
@@ -244,11 +246,11 @@ function fromDb(row: any): Complaint {
     reporter: row.user_name ?? undefined,
     imageUrl: row.photo_url ?? undefined,
     fixImageUrl: row.fix_photo_url ?? undefined,
-    // DB → UI: resolve day for auto-hide
-    // DB → UI: resolve day for auto-hide
     resolvedAt: row.resolved_at ?? row.fixed_at ?? undefined,
-    wardId:
-      row.ward_id === null || row.ward_id === undefined ? undefined : Number(row.ward_id),
+    wardId: row.ward_id === null || row.ward_id === undefined ? undefined : Number(row.ward_id),
+    zoneNum: row.zone_num === null || row.zone_num === undefined ? undefined : Number(row.zone_num),
+    locationTrust: (row.location_trust as "verified_gps" | "self_reported") ?? "verified_gps",
+    reporterFingerprint: row.reporter_fingerprint ?? undefined,
   };
 }
 
@@ -261,7 +263,7 @@ export async function getComplaints(): Promise<Complaint[]> {
 
     if (error) {
       console.error("getComplaints error:", error);
-      return []; // empty map — DO NOT return MOCK_COMPLAINTS
+      return [];
     }
 
     return (data ?? []).map(fromDb);
@@ -274,7 +276,6 @@ export async function getComplaints(): Promise<Complaint[]> {
 type WardHistoryPoint = { date: string; resolutionRate: number; open: number };
 
 async function fetchAllWardHistory(sinceIso: string): Promise<any[]> {
-  // PostgREST caps a single response at 1000 rows; 200 wards × 31 days can exceed that.
   const page = 1000;
   let from = 0;
   const all: any[] = [];
@@ -297,7 +298,7 @@ async function fetchAllWardHistory(sinceIso: string): Promise<any[]> {
   }
   return all;
 }
-/** One complaint by id; null if not found or on error. */
+
 export async function getComplaintById(id: string): Promise<Complaint | null> {
   try {
     const { data, error } = await supabase
@@ -317,12 +318,11 @@ export async function getComplaintById(id: string): Promise<Complaint | null> {
   }
 }
 
-/** Absolute shareable URL for a complaint (client-side only). */
 export function complaintPermalink(id: string): string {
   const origin = typeof window !== "undefined" ? window.location.origin : "";
   return `${origin}/complaint/${id}`;
 }
-/** All complaints for one ward, newest first. Empty array on error. */
+
 export async function getComplaintsForWard(wardId: number): Promise<Complaint[]> {
   try {
     const { data, error } = await supabase
@@ -341,6 +341,7 @@ export async function getComplaintsForWard(wardId: number): Promise<Complaint[]>
     return [];
   }
 }
+
 export async function getWardsFromDb(): Promise<Ward[]> {
   try {
     const since = new Date();
@@ -361,7 +362,6 @@ export async function getWardsFromDb(): Promise<Ward[]> {
 
     const historyByWard: Record<string, WardHistoryPoint[]> = {};
     for (const h of historyRows) {
-      // skip "no data" snapshots so they don't drag trend lines to 0
       if (h.resolution_rate === null || h.resolution_rate === undefined) continue;
       const key = String(h.ward_id);
       if (!historyByWard[key]) historyByWard[key] = [];
@@ -392,9 +392,13 @@ export async function getWardsFromDb(): Promise<Ward[]> {
     return [];
   }
 }
+
 export async function submitComplaintToDb(
   payload: Omit<Complaint, "id" | "upvotes" | "date" | "status">,
 ): Promise<{ complaint: Complaint | null; error: string | null }> {
+  // Derive Ward & Zone automatically from coordinates using polygon math
+  const wardInfo = wardFor(payload.lat, payload.lng);
+
   const { data, error } = await supabase
     .from("complaints")
     .insert([
@@ -411,6 +415,8 @@ export async function submitComplaintToDb(
         photo_url: payload.imageUrl ?? null,
         status: "Unresolved",
         upvote_count: 1,
+        location_trust: payload.locationTrust ?? "verified_gps",
+        reporter_fingerprint: payload.reporterFingerprint ?? "",
       },
     ])
     .select("*")
@@ -451,45 +457,4 @@ export function getMyTicketIds(): string[] {
   return JSON.parse(localStorage.getItem("civiclens_my_tickets") ?? "[]") as string[];
 }
 
-export async function uploadComplaintPhoto(
-  file: File,
-  kind: "before" | "after",
-): Promise<string | null> {
-  const ext = file.name.split(".").pop() || "jpg";
-  const path = `${kind}/${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`;
-
-  const { error } = await supabase.storage
-    .from("complaint-photos")
-    .upload(path, file, { cacheControl: "3600", upsert: false });
-
-  if (error) {
-    console.error("upload photo error:", error);
-    return null;
-  }
-
-  const { data } = supabase.storage.from("complaint-photos").getPublicUrl(path);
-  return data.publicUrl;
-}
-
-export async function markComplaintFixed(
-  complaintId: string,
-  fixPhotoUrl: string,
-): Promise<{ error: string | null }> {
-  const resolvedAt = new Date().toISOString();
-
-  const { error } = await supabase
-    .from("complaints")
-    .update({
-      status: "Resolved",
-      fix_photo_url: fixPhotoUrl,
-      resolved_at: resolvedAt,
-      fixed_at: resolvedAt,
-    })
-    .eq("id", complaintId);
-
-  if (error) {
-    console.error("markComplaintFixed error:", error);
-    return { error: error.message };
-  }
-  return { error: null };
-}
+export { uploadComplaintPhoto } from "@/lib/storage";

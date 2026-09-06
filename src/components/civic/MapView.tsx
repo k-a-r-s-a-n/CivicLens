@@ -10,9 +10,10 @@ import {
 } from "react-leaflet";
 import "leaflet/dist/leaflet.css";
 import L from "leaflet";
-import { Fragment, useEffect } from "react";
+import { Fragment, useEffect, useMemo } from "react";
 import { Clock, MapPin, ThumbsUp } from "lucide-react";
 import { toast } from "sonner";
+import wardsJson from "@/data/gcc-wards.json";
 import { CHENNAI_CENTER, STATUS_COLOR, type Complaint } from "@/data/civic";
 import { GCC_BOUNDS, GCC_FEATURE, gccMaskFeature, isInsideGCC } from "@/lib/gccBoundary";
 import { zoneForArea } from "@/lib/gccWards";
@@ -29,13 +30,12 @@ if (typeof window !== "undefined") {
   });
 }
 
-// World polygon with the GCC area cut out — built once, not per render
+// World polygon with the GCC area cut out
 const GCC_MASK = gccMaskFeature();
 
 function ClickCatcher({ onPick }: { onPick?: ((lat: number, lng: number) => void) | undefined }) {
   const map = useMapEvents({
     click(e) {
-      // Parent's handlePick rejects + toasts if the point is outside GCC (single source of truth, no double toast)
       onPick?.(e.latlng.lat, e.latlng.lng);
     },
     mousemove(e) {
@@ -49,17 +49,15 @@ function ClickCatcher({ onPick }: { onPick?: ((lat: number, lng: number) => void
     },
   });
 
-  // Clear the cursor state the moment pick mode is turned off, even mid-hover
   useEffect(() => {
     if (!onPick) map.getContainer().classList.remove("outside-gcc");
   }, [onPick, map]);
 
   return null;
 }
-// Trackpad pinch arrives as ctrl+wheel with tiny deltas; a mouse notch is ~100 px.
-// Leaflet uses one px-per-level for both, so whichever you tune for, the other feels wrong.
-const PINCH_PX_PER_LEVEL = 60; // lower = pinch zooms further per spread
-const WHEEL_PX_PER_LEVEL = 70; // higher = mouse wheel zooms less per notch
+
+const PINCH_PX_PER_LEVEL = 60;
+const WHEEL_PX_PER_LEVEL = 70;
 
 function SmartWheelZoom() {
   const map = useMap();
@@ -93,6 +91,7 @@ function SmartWheelZoom() {
   }, [map]);
   return null;
 }
+
 function MapFlyTo({ target }: { target?: { lat: number; lng: number } | null }) {
   const map = useMap();
 
@@ -100,6 +99,26 @@ function MapFlyTo({ target }: { target?: { lat: number; lng: number } | null }) 
     if (!target) return;
     map.flyTo([target.lat, target.lng], 14, { duration: 1.6, easeLinearity: 0.15 });
   }, [target, map]);
+
+  return null;
+}
+
+function WardFlyToHandler({ selectedWardId }: { selectedWardId?: number | null }) {
+  const map = useMap();
+
+  useEffect(() => {
+    if (!selectedWardId) return;
+
+    const feature = (wardsJson as any).features?.find(
+      (f: any) => f.properties?.ward === selectedWardId
+    );
+
+    if (feature && feature.properties?.bbox) {
+      const { south, north, west, east } = feature.properties.bbox;
+      const bounds = L.latLngBounds([south, west], [north, east]);
+      map.flyToBounds(bounds, { padding: [40, 40], duration: 1.2 });
+    }
+  }, [selectedWardId, map]);
 
   return null;
 }
@@ -128,9 +147,8 @@ type Props = {
   mapTarget?: { lat: number; lng: number } | null;
   onPickLocation?: ((lat: number, lng: number) => void) | undefined;
   draft?: { lat: number; lng: number } | null | undefined;
-  onMarkFixed?: (id: string, fixUrl: string) => void;
+  selectedWardId?: number | null;
 };
-
 
 export default function MapView({
   complaints,
@@ -139,19 +157,64 @@ export default function MapView({
   mapTarget,
   onPickLocation,
   draft,
+  selectedWardId,
 }: Props) {
+  const wardGeoJsonData = useMemo(() => wardsJson as any, []);
+
+  // Style configuration for 200 GCC Wards
+  const wardStyle = (feature: any) => {
+    const isSelected = selectedWardId && feature?.properties?.ward === selectedWardId;
+    return {
+      fillColor: isSelected ? "#3b82f6" : "#94a3b8",
+      fillOpacity: isSelected ? 0.35 : 0.04,
+      color: isSelected ? "#2563eb" : "#cbd5e1",
+      weight: isSelected ? 2.5 : 0.6,
+    };
+  };
+
+  const onEachWard = (feature: any, layer: L.Layer) => {
+    const wardNum = feature.properties?.ward;
+    const wardName = feature.properties?.name || `Ward ${wardNum}`;
+    const zoneName = feature.properties?.zone_name || "";
+
+    layer.bindTooltip(`<b>${wardName}</b><br/>Zone: ${zoneName}`, {
+      sticky: true,
+      direction: "top",
+      className: "rounded-md border bg-popover px-2 py-1 text-xs text-popover-foreground shadow-sm",
+    });
+
+    layer.on({
+      mouseover: (e) => {
+        const l = e.target;
+        if (feature.properties?.ward !== selectedWardId) {
+          l.setStyle({
+            fillColor: "#3b82f6",
+            fillOpacity: 0.18,
+            weight: 1.5,
+          });
+        }
+      },
+      mouseout: (e) => {
+        const l = e.target;
+        if (feature.properties?.ward !== selectedWardId) {
+          l.setStyle(wardStyle(feature));
+        }
+      },
+    });
+  };
+
   return (
     <MapContainer
       center={CHENNAI_CENTER}
       zoom={12}
       minZoom={11}
       maxBounds={GCC_BOUNDS}
-      maxBoundsViscosity={0.85}   // slight give at the edge instead of a hard wall (1 = wall)
-      scrollWheelZoom={false}     // replaced by SmartWheelZoom below (separate pinch / wheel speeds)
-      zoomSnap={0.25}             // fractional zoom levels — keeps the smooth feel
-      zoomDelta={1}    // batch rapid wheel ticks into one animated zoom (default 40)
-      inertiaDeceleration={3000}  // longer, gentler glide after a drag (default 3000)
-      easeLinearity={0.2}        // smoother easing curve for pan animations (default 0.2)
+      maxBoundsViscosity={0.85}
+      scrollWheelZoom={false}
+      zoomSnap={0.25}
+      zoomDelta={1}
+      inertiaDeceleration={3000}
+      easeLinearity={0.2}
       className="h-full w-full"
       style={{ height: "100%", width: "100%" }}
     >
@@ -159,20 +222,32 @@ export default function MapView({
         attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
         url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
       />
+
       {/* Dim everything outside Greater Chennai Corporation */}
       <GeoJSON
         data={GCC_MASK}
         interactive={false}
         style={{ stroke: false, fillColor: "#1c1917", fillOpacity: 0.35 }}
       />
-      {/* GCC boundary outline (200 wards) */}
+
+      {/* GCC boundary outer limit */}
       <GeoJSON
         data={GCC_FEATURE}
         interactive={false}
         style={{ color: "#0f766e", weight: 2.5, fill: false }}
       />
+
+      {/* 200 Ward Boundaries with Hover Tooltips */}
+      <GeoJSON
+        key={`wards-layer-${selectedWardId ?? "none"}`}
+        data={wardGeoJsonData}
+        style={wardStyle}
+        onEachFeature={onEachWard}
+      />
+
       <SmartWheelZoom />
       <MapFlyTo target={mapTarget} />
+      <WardFlyToHandler selectedWardId={selectedWardId} />
       <ClickCatcher onPick={onPickLocation} />
 
       {draft ? (
@@ -264,6 +339,18 @@ export default function MapView({
                           {c.subType}
                         </Badge>
                       ) : null}
+                      {c.locationTrust ? (
+                        <Badge
+                          variant="secondary"
+                          className={
+                            c.locationTrust === "verified_gps"
+                              ? "bg-emerald-100 text-emerald-800 text-[10px]"
+                              : "bg-amber-100 text-amber-800 text-[10px]"
+                          }
+                        >
+                          {c.locationTrust === "verified_gps" ? "GPS Verified" : "Self Reported"}
+                        </Badge>
+                      ) : null}
                     </div>
 
                     {/* Photo Evidence Audit */}
@@ -321,8 +408,8 @@ export default function MapView({
                           </Badge>
                         </div>
                         <div className="space-y-1 font-mono text-[9px] text-muted-foreground">
-                          <p>✓ Camera GPS Match: {c.lat.toFixed(4)}, {c.lng.toFixed(4)}</p>
-                          <p>✓ Timestamp Verified</p>
+                          <p>✓ Location Match: {c.lat.toFixed(4)}, {c.lng.toFixed(4)}</p>
+                          <p>✓ Fix Proof Audit Complete</p>
                         </div>
                         <Button
                           type="button"
@@ -358,13 +445,13 @@ export default function MapView({
                       <dt className="text-muted-foreground">SLA Deadline</dt>
                       <dd
                         className={
-                          Date.now() > new Date(`${c.date}T00:00:00`).getTime() + 3 * 86_400_000
+                          Date.now() > new Date(`${c.date}T00:00:00`).getTime() + 7 * 86_400_000
                             ? "font-semibold text-status-red"
                             : "font-medium"
                         }
                       >
                         {formatDate(
-                          new Date(new Date(`${c.date}T00:00:00`).getTime() + 3 * 86_400_000),
+                          new Date(new Date(`${c.date}T00:00:00`).getTime() + 7 * 86_400_000),
                         )}
                       </dd>
                     </dl>
@@ -386,8 +473,6 @@ export default function MapView({
                             : "Zonal Officer — zone not on record";
                         })()}
                       </dd>
-                      <dt className="text-muted-foreground">Last inspection</dt>
-                      <dd className="font-medium">None recorded.</dd>
                     </dl>
                   </div>
 
@@ -434,9 +519,6 @@ export default function MapView({
                         "Verify Issue (Public Audit)"
                       )}
                     </Button>
-                    <p className="text-[9px] leading-relaxed text-muted-foreground">
-                      One verification per device. Locations are checked in real deployments.
-                    </p>
                   </div>
                 </div>
               </Popup>

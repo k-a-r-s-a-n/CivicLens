@@ -1,48 +1,98 @@
-/**
- * Handles local photo processing and state management for CivicLens complaints.
- */
+import { supabase } from "@/lib/supabaseClient";
 
 /**
- * Converts an uploaded image File into a Data URL (Base64) string for zero-cost client-side persistence.
- * @param file The image File object uploaded by a citizen or officer.
- * @param type Whether this is the initial complaint photo ("before") or resolution proof ("after").
- * @returns Promise resolving to the Data URL string.
+ * Resizes and compresses an image in the browser before uploading.
+ * Max dimension: 1600px, WebP format, 82% quality.
  */
-export async function uploadComplaintPhoto(
-    file: File,
-    type: "before" | "after" = "before"
-): Promise<string> {
+async function compressImage(file: File): Promise<Blob> {
     return new Promise((resolve, reject) => {
+        const img = new Image();
         const reader = new FileReader();
-        reader.readAsDataURL(file);
 
-        reader.onload = () => {
-            if (typeof reader.result === "string") {
-                resolve(reader.result);
-            } else {
-                reject(new Error("Failed to process image file into readable URL."));
+        reader.onload = (e) => {
+            img.src = e.target?.result as string;
+        };
+        reader.onerror = (err) => reject(err);
+
+        img.onload = () => {
+            const canvas = document.createElement("canvas");
+            let { width, height } = img;
+            const maxDim = 1600;
+
+            if (width > maxDim || height > maxDim) {
+                if (width > height) {
+                    height = Math.round((height * maxDim) / width);
+                    width = maxDim;
+                } else {
+                    width = Math.round((width * maxDim) / height);
+                    height = maxDim;
+                }
             }
+
+            canvas.width = width;
+            canvas.height = height;
+
+            const ctx = canvas.getContext("2d");
+            if (!ctx) {
+                resolve(file); // Fallback to raw file if canvas fails
+                return;
+            }
+
+            ctx.drawImage(img, 0, 0, width, height);
+            canvas.toBlob(
+                (blob) => {
+                    if (blob) {
+                        resolve(blob);
+                    } else {
+                        resolve(file);
+                    }
+                },
+                "image/webp",
+                0.82
+            );
         };
 
-        reader.onerror = (error) => reject(error);
+        reader.readAsDataURL(file);
     });
 }
 
 /**
- * Simulates marking a complaint as resolved locally with a fix photo proof.
- * @param id Complaint ID string.
- * @param fixUrl The Data URL or image string of the resolution proof photo.
- * @returns Promise resolving to boolean success status.
+ * Uploads a complaint photo to Supabase Storage bucket ('complaint-photos').
+ * Returns the public URL string.
  */
-export async function markComplaintFixed(
-    id: string,
-    fixUrl: string
-): Promise<boolean> {
-    try {
-        console.log(`[CivicLens Audit] Complaint #${id} marked as resolved with fix photo:`, fixUrl);
-        return true;
-    } catch (err) {
-        console.error(`Failed to resolve complaint #${id}:`, err);
-        return false;
+export async function uploadComplaintPhoto(
+    file: File,
+    kind: "before" | "after" = "before"
+): Promise<string> {
+    const allowedTypes = ["image/jpeg", "image/png", "image/webp"];
+    if (!allowedTypes.includes(file.type)) {
+        throw new Error(`Unsupported format ${file.type}. Please use JPEG, PNG, or WebP.`);
     }
+
+    // Compress image before upload
+    const compressedBlob = await compressImage(file);
+    const path = `${kind}/${Date.now()}-${Math.random().toString(36).slice(2)}.webp`;
+
+    const { error: uploadError } = await supabase.storage
+        .from("complaint-photos")
+        .upload(path, compressedBlob, {
+            cacheControl: "3600",
+            upsert: false,
+            contentType: "image/webp",
+        });
+
+    if (uploadError) {
+        console.error("[Storage] Upload failed:", uploadError.message);
+        throw new Error(`Upload failed: ${uploadError.message}`);
+    }
+
+    const { data: urlData } = supabase.storage
+        .from("complaint-photos")
+        .getPublicUrl(path);
+
+    if (!urlData?.publicUrl) {
+        throw new Error("Failed to generate public URL for uploaded photo.");
+    }
+
+    return urlData.publicUrl;
 }

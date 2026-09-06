@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect, useMemo } from "react";
-import { Crosshair, ImagePlus, Lock, AlertTriangle, CheckCircle2, Loader2 } from "lucide-react";
+import { Crosshair, Camera, AlertTriangle, CheckCircle2, Loader2, Info } from "lucide-react";
 import ExifReader from "exifreader";
-import { uploadComplaintPhoto } from "@/lib/storage"; // 👈 Adjust import path to your storage utility if needed
+import { uploadComplaintPhoto } from "@/lib/storage";
 import {
   Dialog,
   DialogContent,
@@ -32,8 +32,7 @@ type Props = {
   onSubmit: (c: Omit<Complaint, "id" | "upvotes" | "date" | "status"> & { imageUrl?: string }) => void;
 };
 
-const GEMINI_API_KEY = import.meta.env.VITE_GEMINI_API_KEY || "";
-const MAX_ALLOWED_DISTANCE_METERS = 1000; // 1 km tolerance
+const MAX_ALLOWED_DISTANCE_METERS = 1000;
 
 function calculateDistanceMeters(lat1: number, lon1: number, lat2: number, lon2: number): number {
   const R = 6371e3;
@@ -59,25 +58,34 @@ export function ComplaintDialog({ open, onOpenChange, picked, onRequestPick, onS
   const [reporter, setReporter] = useState("");
   const [photoAttached, setPhotoAttached] = useState(false);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
-  const [isSubmitting, setIsSubmitting] = useState(false); // 👈 Added submit loading state
-  const [selectedFile, setSelectedFile] = useState<File | null>(null); // 👈 Added selected file state
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [detectedLabel, setDetectedLabel] = useState<string>("");
   const [verificationError, setVerificationError] = useState<string | null>(null);
+  const [locationTrust, setLocationTrust] = useState<"verified_gps" | "self_reported">("self_reported");
   const [photoGps, setPhotoGps] = useState<{ lat: number; lng: number } | null>(null);
 
   const fileInputRef = useRef<HTMLInputElement | null>(null);
-
   const pickedWard = useMemo(() => (picked ? wardFor(picked.lat, picked.lng) : null), [picked]);
 
-  const isVerified = photoAttached && !verificationError && !isAnalyzing;
-  const canSubmit = title.trim().length > 2 && description.trim().length > 4 && !!picked && isVerified && !isSubmitting;
+  const canSubmit =
+    title.trim().length >= 3 &&
+    title.trim().length <= 200 &&
+    description.trim().length >= 5 &&
+    description.trim().length <= 2000 &&
+    landmark.trim().length <= 300 &&
+    !!picked &&
+    photoAttached &&
+    !verificationError &&
+    !isAnalyzing &&
+    !isSubmitting;
 
   useEffect(() => {
     if (photoGps && picked) {
       const distance = calculateDistanceMeters(picked.lat, picked.lng, photoGps.lat, photoGps.lng);
       if (distance > MAX_ALLOWED_DISTANCE_METERS) {
         setVerificationError(
-          `Location Mismatch: Pin is ${distance}m away from photo location (max allowed: ${MAX_ALLOWED_DISTANCE_METERS}m).`
+          `Location Mismatch: Photo GPS is ${distance}m away from map pin (max allowed: ${MAX_ALLOWED_DISTANCE_METERS}m).`
         );
       } else {
         setVerificationError(null);
@@ -101,105 +109,91 @@ export function ComplaintDialog({ open, onOpenChange, picked, onRequestPick, onS
     setVerificationError(null);
     setPhotoGps(null);
     setPhotoAttached(false);
-    setSelectedFile(file); // 👈 Save selected file to state
+    setSelectedFile(file);
     setIsAnalyzing(true);
 
     try {
-      // 1. EXIF Verification
-      const tags = await ExifReader.load(file, { expanded: true });
-
-      const dateTaken =
-        tags.exif?.DateTimeOriginal?.description ||
-        tags.exif?.DateTime?.description;
-
-      if (!dateTaken) {
-        throw new Error("Missing Timestamp: Photo lacks original camera date/time metadata.");
-      }
-
-      const imgLat = tags.gps?.Latitude;
-      const imgLng = tags.gps?.Longitude;
-
-      if (imgLat === undefined || imgLng === undefined) {
-        throw new Error("Missing Geotag: Photo has no embedded GPS coordinates.");
-      }
-
-      setPhotoGps({ lat: imgLat, lng: imgLng });
-
       if (!picked) {
-        throw new Error("Please select a location on the map first before attaching a photo.");
+        throw new Error("Please select a location on the map first.");
       }
 
-      const distanceMeters = calculateDistanceMeters(picked.lat, picked.lng, imgLat, imgLng);
+      // --- 1. Tiered EXIF Check ---
+      let hasGps = false;
+      let gpsDistance = 0;
 
-      if (distanceMeters > MAX_ALLOWED_DISTANCE_METERS) {
-        throw new Error(`Location Mismatch: Photo was taken ${distanceMeters}m away from selected map pin.`);
+      try {
+        const tags = await ExifReader.load(file, { expanded: true });
+        const imgLat = tags.gps?.Latitude;
+        const imgLng = tags.gps?.Longitude;
+
+        if (imgLat !== undefined && imgLng !== undefined) {
+          hasGps = true;
+          setPhotoGps({ lat: imgLat, lng: imgLng });
+          gpsDistance = calculateDistanceMeters(picked.lat, picked.lng, imgLat, imgLng);
+
+          if (gpsDistance > MAX_ALLOWED_DISTANCE_METERS) {
+            throw new Error(
+              `Location Mismatch: Photo was taken ${gpsDistance}m away from map pin.`
+            );
+          }
+          setLocationTrust("verified_gps");
+        } else {
+          setLocationTrust("self_reported");
+        }
+      } catch (exifErr: any) {
+        if (exifErr.message?.includes("Location Mismatch")) throw exifErr;
+        setLocationTrust("self_reported");
       }
 
-      // 2. Gemini Vision Verification & Classification
-      if (!GEMINI_API_KEY) {
-        console.warn("⚠️ Gemini API key is missing in .env.local");
-        setDetectedLabel("Missing API Key");
-        setPhotoAttached(true);
-        return;
-      }
-
+      // --- 2. AI Plausibility Analysis via Edge Function ---
       const base64Data = await fileToBase64(file);
       const allowedCategoriesList = CATEGORIES.join(", ");
-
       const promptText = `Analyze this image for a civic complaint reporting platform.
-      
-Determine if the photo clearly depicts a genuine public civic issue or infrastructure defect (e.g., potholes, road damage, overflowing garbage, broken street lights, fallen trees, water leaks, broken footpaths, traffic signal issues).
+        
+Determine if the photo clearly depicts a public civic issue or defect.
+STRICT REJECTION:
+- Selfies, faces, group of people, indoor private space, document, text screenshot, meme = INVALID.
 
-STRICT REJECTION RULES:
-- If the image shows a selfie, human face, group of people, indoor private space, personal object, document, text screenshot, animal, or meme, it is INVALID.
-- Mark "isCivicIssue" as false for any image that does not clearly show a public infrastructure issue or defect.
-
-Return JSON ONLY matching this schema:
+Return JSON ONLY:
 {
   "isCivicIssue": boolean,
-  "invalidReason": "Reason if invalid (e.g., 'Photo shows a person/selfie instead of a public civic defect')",
-  "category": "Exact string from allowed categories list if valid, otherwise null",
-  "summary": "3 to 4 word title of the issue if valid, otherwise null"
-}
-
-Allowed categories: [${allowedCategoriesList}]`;
+  "invalidReason": "reason if invalid",
+  "category": "Exact category string from allowed list or null",
+  "summary": "3-4 word title"
+}`;
 
       const response = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent?key=${GEMINI_API_KEY}`,
+        `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/classify-image`,
         {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${import.meta.env.VITE_SUPABASE_ANON_KEY}`,
+            "x-fingerprint": "browser-user",
+          },
           body: JSON.stringify({
-            contents: [
-              {
-                parts: [
-                  { text: promptText },
-                  { inline_data: { mime_type: file.type || "image/jpeg", data: base64Data } },
-                ],
-              },
-            ],
-            generationConfig: {
-              response_mime_type: "application/json",
-            },
+            imageData: base64Data,
+            mimeType: file.type || "image/jpeg",
+            promptText,
+            categories: allowedCategoriesList,
           }),
         }
       );
 
       if (response.status === 429) {
-        throw new Error("API Limit Reached: Rate limit exceeded. Please wait 1 minute before trying again.");
+        throw new Error("Rate limit reached. Please wait 1 minute before retrying.");
       }
-
-      const data = await response.json();
 
       if (!response.ok) {
-        throw new Error(`API Error: ${data.error?.message || response.statusText}`);
+        const errData = await response.json().catch(() => ({}));
+        throw new Error(errData.error || `AI Service Error (${response.status})`);
       }
 
-      const rawText = data.candidates?.[0]?.content?.parts?.[0]?.text || "";
-      const parsed = JSON.parse(rawText);
+      const aiResult = await response.json();
+      const parsed = typeof aiResult.result === "string" ? JSON.parse(aiResult.result) : aiResult.result;
 
       if (!parsed.isCivicIssue) {
-        throw new Error(parsed.invalidReason || "Invalid Photo: No civic issue or defect detected.");
+        throw new Error(parsed.invalidReason || "No civic issue detected in photo.");
       }
 
       setPhotoAttached(true);
@@ -228,24 +222,24 @@ Allowed categories: [${allowedCategoriesList}]`;
       if (matchedCategory) {
         setCategory(matchedCategory);
         setSubType("");
-        setDetectedLabel(`Verified EXIF (${distanceMeters}m match) • Taken: ${dateTaken}`);
-        if (!title) {
-          setTitle(parsed.summary || `Reported ${matchedCategory} issue`);
-        }
+        if (!title) setTitle(parsed.summary || `Reported ${matchedCategory} issue`);
+      }
+
+      if (hasGps) {
+        setDetectedLabel(`Location: Verified from photo GPS (${gpsDistance}m match)`);
       } else {
-        setDetectedLabel("Unmapped AI Category");
+        setDetectedLabel("Location: Self-reported by citizen (No photo GPS found)");
       }
     } catch (err: any) {
-      console.error("❌ Verification Error:", err);
+      console.error("❌ Photo Verification:", err);
       setVerificationError(err.message || "Failed photo verification.");
       setPhotoAttached(false);
-      setSelectedFile(null); // Clear file on error
+      setSelectedFile(null);
     } finally {
       setIsAnalyzing(false);
     }
   };
 
-  // 👈 Updated submit function to call uploadComplaintPhoto and pass imageUrl
   async function submit() {
     if (!picked || !canSubmit) return;
 
@@ -263,14 +257,15 @@ Allowed categories: [${allowedCategoriesList}]`;
         category,
         subType: subType || undefined,
         landmark: landmark.trim() || undefined,
-        area: pickedWard?.name ?? "Chennai", // "Ward 142"; "Chennai" only if the pin somehow has no ward
+        area: pickedWard?.name ?? "Chennai",
         lat: picked.lat,
         lng: picked.lng,
         reporter: reporter.trim() || "Anonymous",
-        imageUrl, // 👈 Pass uploaded photo URL here
+        imageUrl,
+        locationTrust,
       });
 
-      // Reset Form State
+      // Reset
       setTitle("");
       setDescription("");
       setSubType("");
@@ -284,7 +279,7 @@ Allowed categories: [${allowedCategoriesList}]`;
       onOpenChange(false);
     } catch (err: any) {
       console.error("❌ Submit Error:", err);
-      setVerificationError(err.message || "Failed to upload photo. Please try again.");
+      setVerificationError(err.message || "Failed to submit. Please try again.");
     } finally {
       setIsSubmitting(false);
     }
@@ -296,7 +291,7 @@ Allowed categories: [${allowedCategoriesList}]`;
         <DialogHeader className="text-left">
           <DialogTitle className="font-display">File a complaint</DialogTitle>
           <DialogDescription>
-            Every report is public and permanent. Requires original photo with embedded GPS & timestamp.
+            Every report is public. Attach a clear photo of the issue.
           </DialogDescription>
         </DialogHeader>
 
@@ -333,21 +328,11 @@ Allowed categories: [${allowedCategoriesList}]`;
 
           <div className="space-y-1.5">
             <Label htmlFor="category">Category</Label>
-            <Select
-              value={category}
-              onValueChange={(value) => {
-                setCategory(value);
-                setSubType("");
-              }}
-            >
-              <SelectTrigger id="category" className="w-full">
-                <SelectValue />
-              </SelectTrigger>
+            <Select value={category} onValueChange={(v) => { setCategory(v); setSubType(""); }}>
+              <SelectTrigger id="category" className="w-full"><SelectValue /></SelectTrigger>
               <SelectContent className="z-[10005]">
                 {CATEGORIES.map((c) => (
-                  <SelectItem key={c} value={c}>
-                    {c}
-                  </SelectItem>
+                  <SelectItem key={c} value={c}>{c}</SelectItem>
                 ))}
               </SelectContent>
             </Select>
@@ -357,14 +342,10 @@ Allowed categories: [${allowedCategoriesList}]`;
             <div className="space-y-1.5">
               <Label htmlFor="sub-type">Sub-Type (optional)</Label>
               <Select value={subType} onValueChange={setSubType}>
-                <SelectTrigger id="sub-type" className="w-full">
-                  <SelectValue placeholder="Select a more specific issue" />
-                </SelectTrigger>
+                <SelectTrigger id="sub-type" className="w-full"><SelectValue placeholder="Select specific issue" /></SelectTrigger>
                 <SelectContent className="z-[10005]">
                   {CATEGORY_TREE[category as keyof typeof CATEGORY_TREE].map((item) => (
-                    <SelectItem key={item} value={item}>
-                      {item}
-                    </SelectItem>
+                    <SelectItem key={item} value={item}>{item}</SelectItem>
                   ))}
                 </SelectContent>
               </Select>
@@ -377,7 +358,8 @@ Allowed categories: [${allowedCategoriesList}]`;
               id="title"
               placeholder="e.g. Water leak near bus stop"
               value={title}
-              onChange={(e) => setTitle(e.target.value)}
+              onChange={(e) => setTitle(e.target.value.slice(0, 200))}
+              maxLength={200}
             />
           </div>
 
@@ -386,9 +368,10 @@ Allowed categories: [${allowedCategoriesList}]`;
             <Textarea
               id="desc"
               rows={4}
-              placeholder="What's wrong, how long has it been like this, who does it affect?"
+              placeholder="What's wrong, how long has it been like this?"
               value={description}
-              onChange={(e) => setDescription(e.target.value)}
+              onChange={(e) => setDescription(e.target.value.slice(0, 2000))}
+              maxLength={2000}
             />
           </div>
 
@@ -398,15 +381,17 @@ Allowed categories: [${allowedCategoriesList}]`;
               id="landmark"
               placeholder="e.g. Near HDFC ATM, opposite temple"
               value={landmark}
-              onChange={(e) => setLandmark(e.target.value)}
+              onChange={(e) => setLandmark(e.target.value.slice(0, 300))}
+              maxLength={300}
             />
           </div>
 
           <div className="space-y-1.5">
-            <Label>Photo Evidence (Mandatory with EXIF Metadata)</Label>
+            <Label>Photo Evidence (Mandatory)</Label>
             <input
               type="file"
               accept="image/*"
+              capture="environment"
               className="hidden"
               ref={fileInputRef}
               onChange={handlePhotoSelect}
@@ -414,46 +399,46 @@ Allowed categories: [${allowedCategoriesList}]`;
             <button
               type="button"
               className={`flex w-full flex-col items-center justify-center gap-1 rounded-lg border border-dashed px-4 py-6 text-center transition-colors ${verificationError
-                ? "border-destructive/60 bg-destructive/10"
-                : isVerified
-                  ? "border-emerald-500/60 bg-emerald-500/10"
-                  : "border-border bg-muted/40"
+                  ? "border-destructive/60 bg-destructive/10"
+                  : photoAttached
+                    ? "border-emerald-500/60 bg-emerald-500/10"
+                    : "border-border bg-muted/40"
                 }`}
               onClick={() => fileInputRef.current?.click()}
             >
               {verificationError ? (
                 <AlertTriangle className="size-6 text-destructive" />
-              ) : isVerified ? (
+              ) : photoAttached ? (
                 <CheckCircle2 className="size-6 text-emerald-600 dark:text-emerald-400" />
               ) : (
-                <ImagePlus className="size-6 text-muted-foreground" />
+                <Camera className="size-6 text-muted-foreground" />
               )}
 
               <span className="text-xs font-medium text-foreground">
                 {isAnalyzing
-                  ? "🔍 Verifying EXIF & Analyzing Defect with Gemini AI..."
+                  ? "🔍 Checking photo & AI plausibility..."
                   : verificationError
                     ? "Photo Rejected - Click to try another photo"
                     : photoAttached
-                      ? "Photo Attached & Verified (Click to change)"
-                      : "Add original photo"}
+                      ? "Photo Attached & Checked (Click to change)"
+                      : "Take photo or upload file"}
               </span>
 
               <span className={`text-[11px] ${verificationError ? "text-destructive font-medium" : "text-muted-foreground"}`}>
                 {isAnalyzing
-                  ? "Checking geotag, timestamp, and defect validity..."
+                  ? "Analyzing image defect..."
                   : verificationError
                     ? verificationError
                     : photoAttached
                       ? detectedLabel
-                      : "Must be an unedited camera capture with location enabled"}
+                      : "Camera photos preserve GPS metadata automatically"}
               </span>
             </button>
 
             <p className="flex items-start gap-1.5 text-[10px] leading-relaxed text-muted-foreground">
-              <Lock className="mt-0.5 size-3 shrink-0" />
+              <Info className="mt-0.5 size-3 shrink-0" />
               <span>
-                🔒 Verification Active: Uploads are verified against photo GPS metadata and must match your selected map pin within 1 km.
+                Photos are analyzed by AI for plausibility. Photos with embedded GPS are marked as Verified; photos without GPS are accepted as Self-Reported.
               </span>
             </p>
           </div>
