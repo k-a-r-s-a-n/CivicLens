@@ -28,7 +28,6 @@ import {
 } from "@/data/civic";
 import { supabase } from "@/lib/supabaseClient";
 import { Button } from "@/components/ui/button";
-import { downloadComplaintPdf } from "@/lib/complaintPdf";
 
 export const Route = createFileRoute("/complaint/$id")({
   head: () => ({
@@ -117,6 +116,8 @@ function ComplaintPage() {
     if (!complaint || pdfBusy) return;
     setPdfBusy(true);
     try {
+      // Dynamic import: Only loads the heavy PDF code when button is clicked
+      const { downloadComplaintPdf } = await import("@/lib/complaintPdf");
       const name = await downloadComplaintPdf(complaint);
       toast.success("PDF downloaded", { description: name });
     } catch (err) {
