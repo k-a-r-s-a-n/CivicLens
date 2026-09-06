@@ -290,7 +290,7 @@ export default function MapView({
           Date.now() - new Date(`${c.date}T00:00:00`).getTime() > 7 * 86_400_000;
 
         const markerColor = isSlaBreached
-          ? "#991b1b"
+          ? "#4b038e7b"
           : c.status === "In Progress"
             ? "#eab308"
             : c.status === "Resolved"
