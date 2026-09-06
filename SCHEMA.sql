@@ -168,3 +168,9 @@ DROP TRIGGER IF EXISTS trg_refresh_ward_stats ON public.complaints;
 CREATE TRIGGER trg_refresh_ward_stats
   AFTER INSERT OR UPDATE OR DELETE ON public.complaints
   FOR EACH ROW EXECUTE FUNCTION public.refresh_ward_stats_from_complaints();
+  -- ---------------------------------------------------------------------------
+-- Officer portal (not built yet):
+-- Public role has SELECT + INSERT on complaints only. No public UPDATE.
+-- markComplaintFixed / status→Resolved must run as a privileged role
+-- (service role or authenticated officer) after portal auth exists.
+-- ---------------------------------------------------------------------------

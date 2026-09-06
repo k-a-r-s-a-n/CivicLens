@@ -1,3 +1,9 @@
+/**
+ * Public clients can SELECT + INSERT complaints and upvotes only.
+ * Resolving / fixing a complaint (status, fix_photo_url, resolved_at) requires
+ * an authenticated officer portal — there is no public markComplaintFixed path.
+ * See SCHEMA.sql RLS on public.complaints (no public UPDATE policy).
+ */
 import { supabase } from "@/lib/supabaseClient";
 import { wardFor } from "@/lib/gccWards";
 
