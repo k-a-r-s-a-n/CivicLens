@@ -10,7 +10,7 @@ import {
 } from "react-leaflet";
 import "leaflet/dist/leaflet.css";
 import L from "leaflet";
-import { Fragment, useEffect, useMemo } from "react";
+import { Fragment, useEffect, useMemo, useState, useCallback } from "react";
 import { Clock, MapPin, ThumbsUp } from "lucide-react";
 import { toast } from "sonner";
 import wardsJson from "@/data/gcc-wards.json";
@@ -20,7 +20,7 @@ import { zoneForArea } from "@/lib/gccWards";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 
-// Fix Leaflet marker icons
+// Fix Leaflet default marker icons
 if (typeof window !== "undefined") {
   delete (L.Icon.Default.prototype as any)._getIconUrl;
   L.Icon.Default.mergeOptions({
@@ -30,7 +30,6 @@ if (typeof window !== "undefined") {
   });
 }
 
-// World polygon with the GCC area cut out
 const GCC_MASK = gccMaskFeature();
 
 function ClickCatcher({ onPick }: { onPick?: ((lat: number, lng: number) => void) | undefined }) {
@@ -78,7 +77,10 @@ function SmartWheelZoom() {
         const snap = map.options.zoomSnap || 0.25;
         const raw = map.getZoom() + acc;
         acc = 0;
-        const target = Math.max(map.getMinZoom(), Math.min(map.getMaxZoom(), Math.round(raw / snap) * snap));
+        const target = Math.max(
+          map.getMinZoom(),
+          Math.min(map.getMaxZoom(), Math.round(raw / snap) * snap),
+        );
         if (point && target !== map.getZoom()) map.setZoomAround(point, target, { animate: !pinch });
       }, pinch ? 0 : 30);
     };
@@ -110,7 +112,7 @@ function WardFlyToHandler({ selectedWardId }: { selectedWardId?: number | null |
     if (!selectedWardId) return;
 
     const feature = (wardsJson as any).features?.find(
-      (f: any) => f.properties?.ward === selectedWardId
+      (f: any) => f.properties?.ward === selectedWardId,
     );
 
     if (feature && feature.properties?.bbox) {
@@ -119,6 +121,21 @@ function WardFlyToHandler({ selectedWardId }: { selectedWardId?: number | null |
       map.flyToBounds(bounds, { padding: [40, 40], duration: 1.2 });
     }
   }, [selectedWardId, map]);
+
+  return null;
+}
+
+/** Dynamic Zoom Tracker for scaling pin radii */
+function ZoomTracker({ onZoomChange }: { onZoomChange: (z: number) => void }) {
+  const map = useMapEvents({
+    zoomend() {
+      onZoomChange(map.getZoom());
+    },
+  });
+
+  useEffect(() => {
+    onZoomChange(map.getZoom());
+  }, [map, onZoomChange]);
 
   return null;
 }
@@ -140,6 +157,13 @@ function getUnattendedDays(date: string) {
   return Math.max(0, Math.floor((Date.now() - openedAt.getTime()) / 86_400_000));
 }
 
+/** Computes pin radius scaled proportionally to zoom level */
+function calculateScaledRadius(baseRadius: number, zoom: number): number {
+  // Reference zoom: 13. Scale factor ranges from 0.55 (at zoom 11) up to 1.75 (at zoom 18)
+  const scaleFactor = Math.max(0.55, Math.min(1.75, Math.pow(1.18, zoom - 13)));
+  return Math.round(baseRadius * scaleFactor);
+}
+
 type Props = {
   complaints: Complaint[];
   onUpvote: (id: string) => void;
@@ -159,9 +183,13 @@ export default function MapView({
   draft,
   selectedWardId,
 }: Props) {
+  const [currentZoom, setCurrentZoom] = useState(12);
   const wardGeoJsonData = useMemo(() => wardsJson as any, []);
 
-  // Style configuration for 200 GCC Wards
+  const handleZoomChange = useCallback((z: number) => {
+    setCurrentZoom(z);
+  }, []);
+
   const wardStyle = (feature: any) => {
     const isSelected = selectedWardId && feature?.properties?.ward === selectedWardId;
     return {
@@ -223,21 +251,18 @@ export default function MapView({
         url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
       />
 
-      {/* Dim everything outside Greater Chennai Corporation */}
       <GeoJSON
         data={GCC_MASK}
         interactive={false}
         style={{ stroke: false, fillColor: "#1c1917", fillOpacity: 0.35 }}
       />
 
-      {/* GCC boundary outer limit */}
       <GeoJSON
         data={GCC_FEATURE}
         interactive={false}
         style={{ color: "#0f766e", weight: 2.5, fill: false }}
       />
 
-      {/* 200 Ward Boundaries with Hover Tooltips */}
       <GeoJSON
         key={`wards-layer-${selectedWardId ?? "none"}`}
         data={wardGeoJsonData}
@@ -245,6 +270,7 @@ export default function MapView({
         onEachFeature={onEachWard}
       />
 
+      <ZoomTracker onZoomChange={handleZoomChange} />
       <SmartWheelZoom />
       <MapFlyTo target={mapTarget ?? null} />
       <WardFlyToHandler selectedWardId={selectedWardId ?? null} />
@@ -253,7 +279,7 @@ export default function MapView({
       {draft ? (
         <CircleMarker
           center={[draft.lat, draft.lng]}
-          radius={11}
+          radius={calculateScaledRadius(10, currentZoom)}
           pathOptions={{ color: "#166534", fillColor: "#166534", fillOpacity: 0.35, weight: 3 }}
         />
       ) : null}
@@ -270,6 +296,7 @@ export default function MapView({
             : c.status === "Resolved"
               ? "#16a34a"
               : "#dc2626";
+
         const tooltipText =
           c.status === "Resolved"
             ? "Resolved"
@@ -277,14 +304,19 @@ export default function MapView({
               ? "In Progress"
               : `Unattended for ${getUnattendedDays(c.date)} days`;
 
-        const fixPhoto = c.fixImageUrl || (c as any).resolvedImageUrl;
+        const fixPhoto = c.fixImageUrl;
+
+        // Dynamic pin scaling
+        const baseRadius = isSlaBreached ? 10 : 8;
+        const pinRadius = calculateScaledRadius(baseRadius, currentZoom);
+        const breachRingRadius = calculateScaledRadius(16, currentZoom);
 
         return (
           <Fragment key={c.id}>
             {isSlaBreached ? (
               <CircleMarker
                 center={[c.lat, c.lng]}
-                radius={18}
+                radius={breachRingRadius}
                 pathOptions={{
                   className: "sla-breach-ring",
                   color: "#991b1b",
@@ -293,9 +325,10 @@ export default function MapView({
                 }}
               />
             ) : null}
+
             <CircleMarker
               center={[c.lat, c.lng]}
-              radius={isSlaBreached ? 12 : 9}
+              radius={pinRadius}
               pathOptions={{
                 color: "#ffffff",
                 weight: 2,
@@ -353,13 +386,11 @@ export default function MapView({
                       ) : null}
                     </div>
 
-                    {/* Photo Evidence Audit */}
                     <div className="mt-3 space-y-2 rounded-lg border border-border bg-muted/30 p-2.5">
                       <p className="text-[10px] font-semibold tracking-wider text-muted-foreground uppercase">
                         Photo Evidence Audit
                       </p>
                       <div className="grid grid-cols-2 gap-2">
-                        {/* BEFORE PHOTO */}
                         <div>
                           <p className="text-[9px] font-bold tracking-wider text-muted-foreground uppercase">
                             Before (Issue)
@@ -377,7 +408,6 @@ export default function MapView({
                           )}
                         </div>
 
-                        {/* AFTER PHOTO */}
                         <div>
                           <p className="text-[9px] font-bold tracking-wider text-muted-foreground uppercase">
                             After (Fix)
