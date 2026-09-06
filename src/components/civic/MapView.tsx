@@ -396,9 +396,7 @@ export default function MapView({
                             Before (Issue)
                           </p>
                           {c.imageUrl ? (
-                            <img
-                              src={c.imageUrl}
-                              alt="Complaint Evidence"
+                            <img src={c.imageUrl} alt={`Before photo evidence for ${c.title}`}
                               className="mt-1 h-20 w-full rounded-md border border-border object-cover shadow-sm"
                             />
                           ) : (
@@ -413,9 +411,7 @@ export default function MapView({
                             After (Fix)
                           </p>
                           {fixPhoto ? (
-                            <img
-                              src={fixPhoto}
-                              alt="Fix Proof"
+                            <img src={fixPhoto} alt={`After resolution proof for ${c.title}`}
                               className="mt-1 h-20 w-full rounded-md border border-emerald-500/50 object-cover shadow-sm"
                             />
                           ) : (

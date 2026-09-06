@@ -266,3 +266,14 @@
 .leaflet-container.outside-gcc {
   cursor: not-allowed;
 }
+
+/* Visible focus outlines for keyboard navigation */
+:focus-visible {
+  outline: 2px solid hsl(var(--primary));
+  outline-offset: 2px;
+}
+
+/* Ensure leaflet popups are readable by screen readers */
+.leaflet-popup-content-wrapper {
+  color: inherit;
+}
