@@ -55,7 +55,7 @@ export const Route = createFileRoute("/")({
 
 function Index() {
   const splash = useSplash();
-  const [mounted, setMounted] = useState(false); // Leaflet mount gate
+  const [mounted, setMounted] = useState(false);
   const [view, setView] = useState<"map" | "dashboard">("map");
   const [complaints, setComplaints] = useState<Complaint[]>([]);
   const [category, setCategory] = useState("All");
@@ -72,11 +72,11 @@ function Index() {
   // Mount Leaflet the moment the splash starts fading (pins are already in state),
   // or shortly after first paint if the splash was skipped this session.
   useEffect(() => {
-    if (mounted) return;
-    if (splash.exiting || !splash.mounted) {
+    if (!mounted && (splash.exiting || !splash.mounted)) {
       const t = setTimeout(() => setMounted(true), splash.mounted ? 0 : 200);
       return () => clearTimeout(t);
     }
+    return undefined;
   }, [splash.exiting, splash.mounted, mounted]);
 
   useEffect(() => {
@@ -113,7 +113,6 @@ function Index() {
     let cancelled = false;
     preloadAppData().complaints.then((rows) => {
       if (!cancelled) setComplaints(rows); // always DB result, including []
-      console.table(rows.filter((c) => !isInsideGCC(c.lat, c.lng)).map((c) => ({ area: c.area, title: c.title, lat: c.lat, lng: c.lng })));
     });
     return () => {
       cancelled = true;
@@ -149,10 +148,6 @@ function Index() {
     [category, complaints, searchQuery],
   );
 
-  // Pins shown on the MAP only: hide resolved complaints after 7 days.
-  // Everything else (counts, ward stats, search, filters) continues to use filteredComplaints.
-  // Pins on the MAP only: hide Resolved pins 7 days AFTER they were resolved.
-  // Do NOT use c.date (that is the open/filed date).
   const mapComplaints = useMemo(() => {
     return filteredComplaints.filter((c) => {
       if (c.status !== "Resolved") return true;
@@ -178,7 +173,8 @@ function Index() {
 
     const resolvedThisMonth = complaints.filter((c) => {
       if (c.status !== "Resolved") return false;
-      const raw = (c as any).resolvedAt ?? (c as any).resolved_at ?? c.date;
+      // Provide a fallback property if `resolvedAt` isn't strictly found in early schemas
+      const raw = c.resolvedAt ?? (c as { resolved_at?: string }).resolved_at ?? c.date;
       const d = new Date(
         typeof raw === "string" && raw.length <= 10 ? `${raw}T00:00:00` : raw,
       );
@@ -186,7 +182,6 @@ function Index() {
       return d.getMonth() === month && d.getFullYear() === year;
     }).length;
 
-    // Unique “participation” proxy: sum of upvotes + number of reports (no fake 2847)
     const peopleParticipating =
       complaints.length + complaints.reduce((sum, c) => sum + (c.upvotes || 0), 0);
 
@@ -234,8 +229,10 @@ function Index() {
       selectPlace(exactMatch);
       return;
     }
-    if (matchingPlaces.length > 0) {
-      selectPlace(matchingPlaces[0]);
+
+    const firstMatch = matchingPlaces[0];
+    if (firstMatch) {
+      selectPlace(firstMatch);
       return;
     }
 
@@ -298,23 +295,6 @@ function Index() {
     toast.success("Thanks for verifying!");
   }
 
-  // Real-time Officer Panel fix handler
-  function handleMarkFixed(id: string, fixUrl: string) {
-    const resolvedAt = new Date().toISOString();
-    setComplaints((prev) =>
-      prev.map((c) =>
-        c.id === id
-          ? {
-            ...c,
-            status: "Resolved" as const,
-            fixImageUrl: fixUrl,
-            resolvedAt,
-          }
-          : c,
-      ),
-    );
-  }
-
   function handlePick(lat: number, lng: number) {
     if (!pickMode) return;
     if (!isInsideGCC(lat, lng)) {
@@ -343,7 +323,7 @@ function Index() {
   }
 
   async function submitComplaint(
-    data: Omit<Complaint, "id" | "upvotes" | "date" | "status"> & { imageUrl?: string },
+    data: Omit<Complaint, "id" | "upvotes" | "date" | "status"> & { imageUrl?: string | undefined },
   ) {
     const { complaint, error } = await submitComplaintToDb(data);
 
@@ -551,7 +531,6 @@ function Index() {
                           mapTarget={mapTarget}
                           onPickLocation={pickMode ? handlePick : undefined}
                           draft={picked}
-                          onMarkFixed={handleMarkFixed}
                         />
                       </Suspense>
                     ) : (

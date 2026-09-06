@@ -8,41 +8,41 @@ export type Complaint = {
   title: string;
   description: string;
   category: string;
-  subType?: string;
-  resolvedAt?: string;
-  landmark?: string;
+  subType?: string | undefined;
+  resolvedAt?: string | undefined;
+  landmark?: string | undefined;
   status: ComplaintStatus;
   upvotes: number;
   date: string;
   area: string;
   lat: number;
   lng: number;
-  reporter?: string;
-  imageUrl?: string;
-  fixImageUrl?: string;
-  wardId?: number;
-  zoneNum?: number;
-  locationTrust?: "verified_gps" | "self_reported";
-  reporterFingerprint?: string;
+  reporter?: string | undefined;
+  imageUrl?: string | undefined;
+  fixImageUrl?: string | undefined;
+  wardId?: number | undefined;
+  zoneNum?: number | undefined;
+  locationTrust?: "verified_gps" | "self_reported" | undefined;
+  reporterFingerprint?: string | undefined;
 };
 
 export type Ward = {
-  id?: string | number;
+  id?: string | number | undefined;
   name: string;
   councillor: string;
   open: number;
   resolutionRate: number | null;
   avgDays: number | null;
   slaBreaches: number;
-  zone?: string;
-  history?: { date: string; resolutionRate: number; open: number }[];
+  zone?: string | undefined;
+  history?: { date: string; resolutionRate: number; open: number }[] | undefined;
 };
 
 export type Place = {
   name: string;
   lat: number;
   lng: number;
-  aliases?: string[];
+  aliases?: string[] | undefined;
 };
 
 export const CATEGORY_TREE: Record<string, string[]> = {
@@ -100,7 +100,7 @@ export const CATEGORY_TREE: Record<string, string[]> = {
   ],
 };
 
-export const CATEGORIES = Object.keys(CATEGORY_TREE) as const;
+export const CATEGORIES: string[] = Object.keys(CATEGORY_TREE);
 
 export const CHENNAI_PLACES: Place[] = [
   { name: "Thiruvottiyur", lat: 13.1692, lng: 80.3046 },
@@ -216,12 +216,12 @@ type DbComplaint = {
   fix_photo_url: string | null;
   area: string;
   created_at: string;
-  ward_id?: number | null;
-  zone_num?: number | null;
-  location_trust?: string | null;
-  reporter_fingerprint?: string | null;
-  resolved_at?: string | null;
-  fixed_at?: string | null;
+  ward_id?: number | null | undefined;
+  zone_num?: number | null | undefined;
+  location_trust?: string | null | undefined;
+  reporter_fingerprint?: string | null | undefined;
+  resolved_at?: string | null | undefined;
+  fixed_at?: string | null | undefined;
 };
 
 function fromDb(row: DbComplaint): Complaint {
@@ -396,8 +396,8 @@ export async function getWardsFromDb(): Promise<Ward[]> {
 export async function submitComplaintToDb(
   payload: Omit<Complaint, "id" | "upvotes" | "date" | "status">,
 ): Promise<{ complaint: Complaint | null; error: string | null }> {
-  // Derive Ward & Zone automatically from coordinates using polygon math
-  const wardInfo = wardFor(payload.lat, payload.lng);
+  // Derive Ward automatically from coordinates using polygon math
+  wardFor(payload.lat, payload.lng);
 
   const { data, error } = await supabase
     .from("complaints")

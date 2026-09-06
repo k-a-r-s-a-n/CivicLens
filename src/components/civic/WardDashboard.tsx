@@ -41,11 +41,11 @@ export function WardDashboard() {
   const [isWardSearchFocused, setIsWardSearchFocused] = useState(false);
   const [showDetailedChart, setShowDetailedChart] = useState(false);
   const [filterStalledOnly, setFilterStalledOnly] = useState(false);
-  const [expandedWardId, setExpandedWardId] = useState<string | null>(null); // table row log (one at a time)
-  const [showPinnedLog, setShowPinnedLog] = useState(false);                 // pinned-ward log toggle
-  const [refreshToken, setRefreshToken] = useState(0);                       // bumped on realtime change → logs refetch
+  const [expandedWardId, setExpandedWardId] = useState<string | null>(null);
+  const [showPinnedLog, setShowPinnedLog] = useState(false);
+  const [refreshToken, setRefreshToken] = useState(0);
   const [lastSync, setLastSync] = useState<Date | null>(null);
-  const [tick, setTick] = useState(0);                                       // re-render for "synced Xs ago"
+  const [tick, setTick] = useState(0);
 
   // Pagination State
   const [currentPage, setCurrentPage] = useState(1);
@@ -61,7 +61,6 @@ export function WardDashboard() {
     return () => { isMountedRef.current = false; };
   }, []);
 
-  // silent = true → refetch without flipping isLoading (no table flash on realtime updates)
   const loadWards = useCallback(async (silent = false) => {
     if (!silent) setIsLoading(true);
     try {
@@ -78,7 +77,6 @@ export function WardDashboard() {
     }
   }, []);
 
-  // Initial load: paint from the splash preload if fresh, then refresh silently; else normal load
   useEffect(() => {
     const cached = peekPreloadedWards();
     if (cached) {
@@ -91,7 +89,6 @@ export function WardDashboard() {
     }
   }, [loadWards]);
 
-  // Realtime: any change to complaints → refetch ward stats + bump open logs (debounced to coalesce bursts)
   useEffect(() => {
     let timer: ReturnType<typeof setTimeout> | null = null;
     const channel = supabase
@@ -111,7 +108,6 @@ export function WardDashboard() {
     };
   }, [loadWards]);
 
-  // Keep "synced Xs ago" honest
   useEffect(() => {
     const t = setInterval(() => setTick((x) => x + 1), 15_000);
     return () => clearInterval(t);
@@ -131,20 +127,17 @@ export function WardDashboard() {
 
   const windowDays = trendWindow === "Daily" ? 1 : trendWindow === "Weekly" ? 7 : 30;
 
-  // Helper: past rate N days back (falls back to current rate)
   function pastRateOf(w: EnhancedWard): number {
     const current = w.resolutionRate ?? 0;
     if (!w.hasTrend) return current;
     return w.history[Math.max(0, w.history.length - 1 - windowDays)]?.resolutionRate ?? current;
   }
 
-  // Helper: safely compute delta (0 if no trend / no data)
   function computeDelta(w: EnhancedWard): number {
     if (!w.hasTrend || w.resolutionRate === null) return 0;
     return w.resolutionRate - pastRateOf(w);
   }
 
-  // Helper: stalled = has open issues AND (not improving vs past, or <50% with no trend)
   function isStalled(w: EnhancedWard): boolean {
     if (w.open <= 0) return false;
     const rate = w.resolutionRate ?? 0;
@@ -152,7 +145,6 @@ export function WardDashboard() {
     return rate < 50;
   }
 
-  // City Pulse Stats
   const cityStats = useMemo(() => {
     if (!enhancedWards.length) {
       return { open: 0, resolved7d: 0, stalled: 0, breachRate: 0 };
@@ -187,19 +179,24 @@ export function WardDashboard() {
   // Zone Aggregations for Tiles and Chart
   const zoneStats = useMemo(() => {
     if (!enhancedWards.length) return [];
-    const map: Record<string, {
+
+    type ZoneBucket = {
       unresolved: number;
       totalRate: number;
       count: number;
       historyMap: Record<string, { sum: number; count: number }>;
       pastRateSum: number;
       hasRealHistory: boolean;
-    }> = {};
+    };
+
+    const map: Record<string, ZoneBucket> = {};
 
     enhancedWards.forEach((w) => {
       const zName = w.zone || "Zone";
-      if (!map[zName]) {
-        map[zName] = {
+
+      let bucket = map[zName];
+      if (!bucket) {
+        bucket = {
           unresolved: 0,
           totalRate: 0,
           count: 0,
@@ -207,26 +204,28 @@ export function WardDashboard() {
           pastRateSum: 0,
           hasRealHistory: false,
         };
+        map[zName] = bucket;
       }
 
       if (w.hasTrend) {
-        map[zName].hasRealHistory = true;
+        bucket.hasRealHistory = true;
       }
 
-      // Honest aggregation only — wards with no complaints do not count toward the average.
-      map[zName].unresolved += w.open;
+      bucket.unresolved += w.open;
       if (w.resolutionRate !== null) {
-        map[zName].totalRate += w.resolutionRate;
-        map[zName].pastRateSum += pastRateOf(w);
-        map[zName].count += 1;
+        bucket.totalRate += w.resolutionRate;
+        bucket.pastRateSum += pastRateOf(w);
+        bucket.count += 1;
       }
 
       w.history.forEach((h) => {
-        if (!map[zName].historyMap[h.date]) {
-          map[zName].historyMap[h.date] = { sum: 0, count: 0 };
+        let dayBucket = bucket.historyMap[h.date];
+        if (!dayBucket) {
+          dayBucket = { sum: 0, count: 0 };
+          bucket.historyMap[h.date] = dayBucket;
         }
-        map[zName].historyMap[h.date].sum += h.resolutionRate;
-        map[zName].historyMap[h.date].count += 1;
+        dayBucket.sum += h.resolutionRate;
+        dayBucket.count += 1;
       });
     });
 
@@ -237,12 +236,11 @@ export function WardDashboard() {
       const aggregatedHistory = data.hasRealHistory
         ? Object.keys(data.historyMap)
           .sort()
-          .map((date) => ({
-            date,
-            resolutionRate: Math.round(
-              data.historyMap[date].sum / (data.historyMap[date].count || 1),
-            ),
-          }))
+          .map((date) => {
+            const dayEntry = data.historyMap[date];
+            const avg = dayEntry ? Math.round(dayEntry.sum / (dayEntry.count || 1)) : 0;
+            return { date, resolutionRate: avg };
+          })
           .slice(-windowDays - 1)
         : [];
 
@@ -263,7 +261,6 @@ export function WardDashboard() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [enhancedWards, windowDays]);
 
-  // Natural numeric sorting for Zones
   const zonesList = useMemo(() => {
     const list = Array.from(new Set(enhancedWards.map((w) => w.zone || "GCC"))).filter(Boolean) as string[];
     list.sort((a, b) => {
@@ -275,7 +272,6 @@ export function WardDashboard() {
     return ["All", ...list];
   }, [enhancedWards]);
 
-  // Stalled wards list
   const stalledWardsList = useMemo(() => {
     return enhancedWards
       .filter(isStalled)
@@ -284,7 +280,6 @@ export function WardDashboard() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [enhancedWards, windowDays]);
 
-  // Filtered wards for table
   const filteredWards = useMemo(() => {
     const q = search.toLowerCase();
     return enhancedWards.filter((w) => {
@@ -305,14 +300,12 @@ export function WardDashboard() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [enhancedWards, search, selectedZone, filterStalledOnly, windowDays]);
 
-  // Pagination
   const totalPages = Math.ceil(filteredWards.length / ITEMS_PER_PAGE);
   const paginatedWards = useMemo(() => {
     const start = (currentPage - 1) * ITEMS_PER_PAGE;
     return filteredWards.slice(start, start + ITEMS_PER_PAGE);
   }, [filteredWards, currentPage]);
 
-  // Hero search
   const heroSearchResults = useMemo(() => {
     if (!wardSearch.trim()) return [];
     const q = wardSearch.toLowerCase();

@@ -46,7 +46,7 @@ function relativeTime(from: Date, now: Date): string {
     return `${h}h ago`;
 }
 
-function PhotoBox({ src, label }: { src?: string; label: string }) {
+function PhotoBox({ src, label }: { src?: string | undefined; label: string }) {
     return (
         <div className="flex flex-col gap-1">
             <span className="text-[9px] font-bold tracking-wider text-muted-foreground uppercase">{label}</span>

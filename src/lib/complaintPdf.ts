@@ -151,8 +151,7 @@ function drawRows(ctx: Ctx, rows: Row[]) {
     });
 }
 
-type PhotoSlot = { label: string; caption: string; url?: string; img: LoadedImage | null };
-
+type PhotoSlot = { label: string; caption: string; url?: string | undefined; img: LoadedImage | null };
 function drawPhotos(ctx: Ctx, slots: PhotoSlot[]) {
     const cols = slots.length;
     const gutter = 6;

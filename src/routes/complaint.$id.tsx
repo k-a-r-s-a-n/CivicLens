@@ -67,7 +67,7 @@ function Header() {
   );
 }
 
-function Photo({ src, label }: { src?: string; label: string }) {
+function Photo({ src, label }: { src?: string | undefined; label: string }) {
   return (
     <div className="flex flex-col gap-1.5">
       <span className="text-[10px] font-bold tracking-wider text-muted-foreground uppercase">{label}</span>

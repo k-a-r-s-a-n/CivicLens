@@ -92,7 +92,7 @@ function SmartWheelZoom() {
   return null;
 }
 
-function MapFlyTo({ target }: { target?: { lat: number; lng: number } | null }) {
+function MapFlyTo({ target }: { target?: { lat: number; lng: number } | null | undefined }) {
   const map = useMap();
 
   useEffect(() => {
@@ -103,7 +103,7 @@ function MapFlyTo({ target }: { target?: { lat: number; lng: number } | null }) 
   return null;
 }
 
-function WardFlyToHandler({ selectedWardId }: { selectedWardId?: number | null }) {
+function WardFlyToHandler({ selectedWardId }: { selectedWardId?: number | null | undefined }) {
   const map = useMap();
 
   useEffect(() => {
@@ -144,10 +144,10 @@ type Props = {
   complaints: Complaint[];
   onUpvote: (id: string) => void;
   upvotedIds: ReadonlySet<string>;
-  mapTarget?: { lat: number; lng: number } | null;
+  mapTarget?: { lat: number; lng: number } | null | undefined;
   onPickLocation?: ((lat: number, lng: number) => void) | undefined;
   draft?: { lat: number; lng: number } | null | undefined;
-  selectedWardId?: number | null;
+  selectedWardId?: number | null | undefined;
 };
 
 export default function MapView({
@@ -246,8 +246,8 @@ export default function MapView({
       />
 
       <SmartWheelZoom />
-      <MapFlyTo target={mapTarget} />
-      <WardFlyToHandler selectedWardId={selectedWardId} />
+      <MapFlyTo target={mapTarget ?? null} />
+      <WardFlyToHandler selectedWardId={selectedWardId ?? null} />
       <ClickCatcher onPick={onPickLocation} />
 
       {draft ? (

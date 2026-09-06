@@ -29,12 +29,21 @@ type Props = {
   onOpenChange: (open: boolean) => void;
   picked: { lat: number; lng: number } | null;
   onRequestPick: () => void;
-  onSubmit: (c: Omit<Complaint, "id" | "upvotes" | "date" | "status"> & { imageUrl?: string }) => void;
+  onSubmit: (
+    c: Omit<Complaint, "id" | "upvotes" | "date" | "status"> & {
+      imageUrl?: string | undefined;
+    },
+  ) => void;
 };
 
 const MAX_ALLOWED_DISTANCE_METERS = 1000;
 
-function calculateDistanceMeters(lat1: number, lon1: number, lat2: number, lon2: number): number {
+function calculateDistanceMeters(
+  lat1: number,
+  lon1: number,
+  lat2: number,
+  lon2: number,
+): number {
   const R = 6371e3;
   const rad1 = (lat1 * Math.PI) / 180;
   const rad2 = (lat2 * Math.PI) / 180;
@@ -49,8 +58,14 @@ function calculateDistanceMeters(lat1: number, lon1: number, lat2: number, lon2:
   return Math.round(R * c);
 }
 
-export function ComplaintDialog({ open, onOpenChange, picked, onRequestPick, onSubmit }: Props) {
-  const [category, setCategory] = useState<string>(CATEGORIES[0] || "Pothole / Roads");
+export function ComplaintDialog({
+  open,
+  onOpenChange,
+  picked,
+  onRequestPick,
+  onSubmit,
+}: Props) {
+  const [category, setCategory] = useState<string>(CATEGORIES[0] ?? "Roads & Footpaths");
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [subType, setSubType] = useState("");
@@ -60,13 +75,20 @@ export function ComplaintDialog({ open, onOpenChange, picked, onRequestPick, onS
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
-  const [detectedLabel, setDetectedLabel] = useState<string>("");
+  const [detectedLabel, setDetectedLabel] = useState("");
   const [verificationError, setVerificationError] = useState<string | null>(null);
-  const [locationTrust, setLocationTrust] = useState<"verified_gps" | "self_reported">("self_reported");
+  const [locationTrust, setLocationTrust] = useState<"verified_gps" | "self_reported">(
+    "self_reported",
+  );
   const [photoGps, setPhotoGps] = useState<{ lat: number; lng: number } | null>(null);
 
   const fileInputRef = useRef<HTMLInputElement | null>(null);
-  const pickedWard = useMemo(() => (picked ? wardFor(picked.lat, picked.lng) : null), [picked]);
+  const pickedWard = useMemo(
+    () => (picked ? wardFor(picked.lat, picked.lng) : null),
+    [picked],
+  );
+
+  const subTypes = CATEGORY_TREE[category];
 
   const canSubmit =
     title.trim().length >= 3 &&
@@ -82,10 +104,15 @@ export function ComplaintDialog({ open, onOpenChange, picked, onRequestPick, onS
 
   useEffect(() => {
     if (photoGps && picked) {
-      const distance = calculateDistanceMeters(picked.lat, picked.lng, photoGps.lat, photoGps.lng);
+      const distance = calculateDistanceMeters(
+        picked.lat,
+        picked.lng,
+        photoGps.lat,
+        photoGps.lng,
+      );
       if (distance > MAX_ALLOWED_DISTANCE_METERS) {
         setVerificationError(
-          `Location Mismatch: Photo GPS is ${distance}m away from map pin (max allowed: ${MAX_ALLOWED_DISTANCE_METERS}m).`
+          `Location Mismatch: Photo GPS is ${distance}m away from map pin (max allowed: ${MAX_ALLOWED_DISTANCE_METERS}m).`,
         );
       } else {
         setVerificationError(null);
@@ -93,14 +120,25 @@ export function ComplaintDialog({ open, onOpenChange, picked, onRequestPick, onS
     }
   }, [picked, photoGps]);
 
-  const fileToBase64 = (file: File): Promise<string> => {
-    return new Promise((resolve, reject) => {
+  const fileToBase64 = (file: File): Promise<string> =>
+    new Promise((resolve, reject) => {
       const reader = new FileReader();
+      reader.onload = () => {
+        const result = reader.result;
+        if (typeof result !== "string") {
+          reject(new Error("Failed to read file"));
+          return;
+        }
+        const b64 = result.split(",")[1];
+        if (!b64) {
+          reject(new Error("Invalid data URL"));
+          return;
+        }
+        resolve(b64);
+      };
+      reader.onerror = () => reject(reader.error ?? new Error("read failed"));
       reader.readAsDataURL(file);
-      reader.onload = () => resolve((reader.result as string).split(",")[1]);
-      reader.onerror = (error) => reject(error);
     });
-  };
 
   const handlePhotoSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -117,7 +155,6 @@ export function ComplaintDialog({ open, onOpenChange, picked, onRequestPick, onS
         throw new Error("Please select a location on the map first.");
       }
 
-      // --- 1. Tiered EXIF Check ---
       let hasGps = false;
       let gpsDistance = 0;
 
@@ -133,23 +170,23 @@ export function ComplaintDialog({ open, onOpenChange, picked, onRequestPick, onS
 
           if (gpsDistance > MAX_ALLOWED_DISTANCE_METERS) {
             throw new Error(
-              `Location Mismatch: Photo was taken ${gpsDistance}m away from map pin.`
+              `Location Mismatch: Photo was taken ${gpsDistance}m away from map pin.`,
             );
           }
           setLocationTrust("verified_gps");
         } else {
           setLocationTrust("self_reported");
         }
-      } catch (exifErr: any) {
-        if (exifErr.message?.includes("Location Mismatch")) throw exifErr;
+      } catch (exifErr: unknown) {
+        const msg = exifErr instanceof Error ? exifErr.message : String(exifErr);
+        if (msg.includes("Location Mismatch")) throw exifErr;
         setLocationTrust("self_reported");
       }
 
-      // --- 2. AI Plausibility Analysis via Edge Function ---
       const base64Data = await fileToBase64(file);
       const allowedCategoriesList = CATEGORIES.join(", ");
       const promptText = `Analyze this image for a civic complaint reporting platform.
-        
+
 Determine if the photo clearly depicts a public civic issue or defect.
 STRICT REJECTION:
 - Selfies, faces, group of people, indoor private space, document, text screenshot, meme = INVALID.
@@ -160,40 +197,57 @@ Return JSON ONLY:
   "invalidReason": "reason if invalid",
   "category": "Exact category string from allowed list or null",
   "summary": "3-4 word title"
-}`;
+}
+Allowed categories: [${allowedCategoriesList}]`;
 
-      const response = await fetch(
-        `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/classify-image`,
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${import.meta.env.VITE_SUPABASE_ANON_KEY}`,
-            "x-fingerprint": "browser-user",
-          },
-          body: JSON.stringify({
-            imageData: base64Data,
-            mimeType: file.type || "image/jpeg",
-            promptText,
-            categories: allowedCategoriesList,
-          }),
-        }
-      );
+      const supabaseUrl = import.meta.env["VITE_SUPABASE_URL"] as string | undefined;
+      const supabaseAnonKey = import.meta.env["VITE_SUPABASE_ANON_KEY"] as string | undefined;
+      if (!supabaseUrl || !supabaseAnonKey) {
+        throw new Error("Missing Supabase configuration.");
+      }
+
+      const response = await fetch(`${supabaseUrl}/functions/v1/classify-image`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${supabaseAnonKey}`,
+          "x-fingerprint": "browser-user",
+        },
+        body: JSON.stringify({
+          imageData: base64Data,
+          mimeType: file.type || "image/jpeg",
+          promptText,
+          categories: allowedCategoriesList,
+        }),
+      });
 
       if (response.status === 429) {
         throw new Error("Rate limit reached. Please wait 1 minute before retrying.");
       }
 
       if (!response.ok) {
-        const errData = await response.json().catch(() => ({}));
+        const errData = (await response.json().catch(() => ({}))) as { error?: string };
         throw new Error(errData.error || `AI Service Error (${response.status})`);
       }
 
-      const aiResult = await response.json();
-      const parsed = typeof aiResult.result === "string" ? JSON.parse(aiResult.result) : aiResult.result;
+      const aiResult = (await response.json()) as { result?: string | object };
+      const parsed =
+        typeof aiResult.result === "string"
+          ? (JSON.parse(aiResult.result) as {
+            isCivicIssue?: boolean;
+            invalidReason?: string;
+            category?: string | null;
+            summary?: string | null;
+          })
+          : (aiResult.result as {
+            isCivicIssue?: boolean;
+            invalidReason?: string;
+            category?: string | null;
+            summary?: string | null;
+          });
 
-      if (!parsed.isCivicIssue) {
-        throw new Error(parsed.invalidReason || "No civic issue detected in photo.");
+      if (!parsed?.isCivicIssue) {
+        throw new Error(parsed?.invalidReason || "No civic issue detected in photo.");
       }
 
       setPhotoAttached(true);
@@ -230,9 +284,10 @@ Return JSON ONLY:
       } else {
         setDetectedLabel("Location: Self-reported by citizen (No photo GPS found)");
       }
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error("❌ Photo Verification:", err);
-      setVerificationError(err.message || "Failed photo verification.");
+      const message = err instanceof Error ? err.message : "Failed photo verification.";
+      setVerificationError(message);
       setPhotoAttached(false);
       setSelectedFile(null);
     } finally {
@@ -244,28 +299,33 @@ Return JSON ONLY:
     if (!picked || !canSubmit) return;
 
     setIsSubmitting(true);
-    let imageUrl: string | undefined = undefined;
 
     try {
+      let imageUrl: string | undefined;
       if (selectedFile) {
         imageUrl = await uploadComplaintPhoto(selectedFile, "before");
       }
 
-      onSubmit({
+      // Build payload without explicit `undefined` optional keys (exactOptionalPropertyTypes)
+      const payload: Omit<Complaint, "id" | "upvotes" | "date" | "status"> & {
+        imageUrl?: string | undefined;
+      } = {
         title: title.trim(),
         description: description.trim(),
         category,
-        subType: subType || undefined,
-        landmark: landmark.trim() || undefined,
         area: pickedWard?.name ?? "Chennai",
         lat: picked.lat,
         lng: picked.lng,
         reporter: reporter.trim() || "Anonymous",
-        imageUrl,
         locationTrust,
-      });
+      };
 
-      // Reset
+      if (subType.trim()) payload.subType = subType.trim();
+      if (landmark.trim()) payload.landmark = landmark.trim();
+      if (imageUrl) payload.imageUrl = imageUrl;
+
+      onSubmit(payload);
+
       setTitle("");
       setDescription("");
       setSubType("");
@@ -274,12 +334,15 @@ Return JSON ONLY:
       setPhotoAttached(false);
       setSelectedFile(null);
       setVerificationError(null);
-      setCategory(CATEGORIES[0] || "Pothole / Roads");
+      setCategory(CATEGORIES[0] ?? "Roads & Footpaths");
       setDetectedLabel("");
+      setLocationTrust("self_reported");
+      setPhotoGps(null);
       onOpenChange(false);
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error("❌ Submit Error:", err);
-      setVerificationError(err.message || "Failed to submit. Please try again.");
+      const message = err instanceof Error ? err.message : "Failed to submit. Please try again.";
+      setVerificationError(message);
     } finally {
       setIsSubmitting(false);
     }
@@ -328,24 +391,38 @@ Return JSON ONLY:
 
           <div className="space-y-1.5">
             <Label htmlFor="category">Category</Label>
-            <Select value={category} onValueChange={(v) => { setCategory(v); setSubType(""); }}>
-              <SelectTrigger id="category" className="w-full"><SelectValue /></SelectTrigger>
+            <Select
+              value={category}
+              onValueChange={(v) => {
+                setCategory(v);
+                setSubType("");
+              }}
+            >
+              <SelectTrigger id="category" className="w-full">
+                <SelectValue />
+              </SelectTrigger>
               <SelectContent className="z-[10005]">
                 {CATEGORIES.map((c) => (
-                  <SelectItem key={c} value={c}>{c}</SelectItem>
+                  <SelectItem key={c} value={c}>
+                    {c}
+                  </SelectItem>
                 ))}
               </SelectContent>
             </Select>
           </div>
 
-          {CATEGORY_TREE[category as keyof typeof CATEGORY_TREE] ? (
+          {subTypes && subTypes.length > 0 ? (
             <div className="space-y-1.5">
               <Label htmlFor="sub-type">Sub-Type (optional)</Label>
               <Select value={subType} onValueChange={setSubType}>
-                <SelectTrigger id="sub-type" className="w-full"><SelectValue placeholder="Select specific issue" /></SelectTrigger>
+                <SelectTrigger id="sub-type" className="w-full">
+                  <SelectValue placeholder="Select specific issue" />
+                </SelectTrigger>
                 <SelectContent className="z-[10005]">
-                  {CATEGORY_TREE[category as keyof typeof CATEGORY_TREE].map((item) => (
-                    <SelectItem key={item} value={item}>{item}</SelectItem>
+                  {subTypes.map((item) => (
+                    <SelectItem key={item} value={item}>
+                      {item}
+                    </SelectItem>
                   ))}
                 </SelectContent>
               </Select>
@@ -416,7 +493,7 @@ Return JSON ONLY:
 
               <span className="text-xs font-medium text-foreground">
                 {isAnalyzing
-                  ? "🔍 Checking photo & AI plausibility..."
+                  ? "Checking photo & AI plausibility..."
                   : verificationError
                     ? "Photo Rejected - Click to try another photo"
                     : photoAttached
@@ -424,7 +501,10 @@ Return JSON ONLY:
                       : "Take photo or upload file"}
               </span>
 
-              <span className={`text-[11px] ${verificationError ? "text-destructive font-medium" : "text-muted-foreground"}`}>
+              <span
+                className={`text-[11px] ${verificationError ? "font-medium text-destructive" : "text-muted-foreground"
+                  }`}
+              >
                 {isAnalyzing
                   ? "Analyzing image defect..."
                   : verificationError
@@ -438,7 +518,8 @@ Return JSON ONLY:
             <p className="flex items-start gap-1.5 text-[10px] leading-relaxed text-muted-foreground">
               <Info className="mt-0.5 size-3 shrink-0" />
               <span>
-                Photos are analyzed by AI for plausibility. Photos with embedded GPS are marked as Verified; photos without GPS are accepted as Self-Reported.
+                Photos are analyzed by AI for plausibility. Photos with embedded GPS are marked as
+                Verified; photos without GPS are accepted as Self-Reported.
               </span>
             </p>
           </div>
