@@ -11,7 +11,6 @@ import { WardDashboard } from "@/components/civic/WardDashboard";
 import { ComplaintDialog } from "@/components/civic/ComplaintDialog";
 import {
   CHENNAI_PLACES,
-  MOCK_COMPLAINTS,
   STATUS_COLOR,
   CATEGORIES,
   getComplaints,
@@ -22,8 +21,15 @@ import {
   type Place,
 } from "@/data/civic";
 import { supabase } from "@/lib/supabaseClient";
+import { preloadAppData } from "@/lib/appData";
+import { isInsideGCC } from "@/lib/gccBoundary";
+import { SplashScreen, useSplash } from "@/components/civic/SplashScreen";
 
 const MapView = lazy(() => import("@/components/civic/MapView"));
+
+// Auto-hide resolved pins from the map after 7 days.
+// They still exist in the DB and still count toward Ward stats.
+const RESOLVED_PIN_LIFETIME_MS = 7 * 24 * 60 * 60 * 1000;
 
 export const Route = createFileRoute("/")({
   head: () => ({
@@ -48,9 +54,10 @@ export const Route = createFileRoute("/")({
 });
 
 function Index() {
-  const [mounted, setMounted] = useState(false);
+  const splash = useSplash();
+  const [mounted, setMounted] = useState(false); // Leaflet mount gate
   const [view, setView] = useState<"map" | "dashboard">("map");
-  const [complaints, setComplaints] = useState<Complaint[]>(MOCK_COMPLAINTS);
+  const [complaints, setComplaints] = useState<Complaint[]>([]);
   const [category, setCategory] = useState("All");
   const [searchQuery, setSearchQuery] = useState("");
   const [searchSuggestions, setSearchSuggestions] = useState<Place[]>([]);
@@ -62,21 +69,29 @@ function Index() {
   const [mapHovered, setMapHovered] = useState(false);
   const [picked, setPicked] = useState<{ lat: number; lng: number } | null>(null);
 
+  // Mount Leaflet the moment the splash starts fading (pins are already in state),
+  // or shortly after first paint if the splash was skipped this session.
   useEffect(() => {
-    const t = setTimeout(() => setMounted(true), 450);
-    return () => clearTimeout(t);
+    if (mounted) return;
+    if (splash.exiting || !splash.mounted) {
+      const t = setTimeout(() => setMounted(true), splash.mounted ? 0 : 200);
+      return () => clearTimeout(t);
+    }
+  }, [splash.exiting, splash.mounted, mounted]);
+
+  useEffect(() => {
+    if (window.location.hash === "#dashboard") setView("dashboard");
   }, []);
 
   useEffect(() => {
-    if (window.location.hash === "#dashboard") {
-      setView("dashboard");
-    } else if (window.location.hash === "#map") {
+    if (splash.mounted) return;
+    if (window.location.hash === "#map") {
       window.setTimeout(
         () => document.getElementById("map")?.scrollIntoView({ behavior: "smooth" }),
-        0,
+        50,
       );
     }
-  }, []);
+  }, [splash.mounted]);
 
   useEffect(() => {
     const storedDeviceId = localStorage.getItem("civiclens_device_id") ?? crypto.randomUUID();
@@ -93,13 +108,13 @@ function Index() {
     setUpvotedIds(new Set(deviceUpvotes));
   }, []);
 
-  // Load live complaints
+  // Load live complaints — shares the preload promise driving the splash
   useEffect(() => {
     let cancelled = false;
-    (async () => {
-      const rows = await getComplaints();
-      if (!cancelled && rows.length) setComplaints(rows);
-    })();
+    preloadAppData().complaints.then((rows) => {
+      if (!cancelled) setComplaints(rows); // always DB result, including []
+      console.table(rows.filter((c) => !isInsideGCC(c.lat, c.lng)).map((c) => ({ area: c.area, title: c.title, lat: c.lat, lng: c.lng })));
+    });
     return () => {
       cancelled = true;
     };
@@ -134,6 +149,50 @@ function Index() {
     [category, complaints, searchQuery],
   );
 
+  // Pins shown on the MAP only: hide resolved complaints after 7 days.
+  // Everything else (counts, ward stats, search, filters) continues to use filteredComplaints.
+  // Pins on the MAP only: hide Resolved pins 7 days AFTER they were resolved.
+  // Do NOT use c.date (that is the open/filed date).
+  const mapComplaints = useMemo(() => {
+    return filteredComplaints.filter((c) => {
+      if (c.status !== "Resolved") return true;
+
+      const raw = c.resolvedAt; // only resolve day — NOT c.date
+      if (!raw) return true;
+
+      const resolvedTime = new Date(
+        typeof raw === "string" && raw.length <= 10 ? `${raw}T00:00:00` : raw,
+      ).getTime();
+
+      if (Number.isNaN(resolvedTime)) return true;
+      return Date.now() - resolvedTime <= RESOLVED_PIN_LIFETIME_MS;
+    });
+  }, [filteredComplaints]);
+
+  const heroStats = useMemo(() => {
+    const now = new Date();
+    const month = now.getMonth();
+    const year = now.getFullYear();
+
+    const openIssues = complaints.filter((c) => c.status !== "Resolved").length;
+
+    const resolvedThisMonth = complaints.filter((c) => {
+      if (c.status !== "Resolved") return false;
+      const raw = (c as any).resolvedAt ?? (c as any).resolved_at ?? c.date;
+      const d = new Date(
+        typeof raw === "string" && raw.length <= 10 ? `${raw}T00:00:00` : raw,
+      );
+      if (Number.isNaN(d.getTime())) return false;
+      return d.getMonth() === month && d.getFullYear() === year;
+    }).length;
+
+    // Unique “participation” proxy: sum of upvotes + number of reports (no fake 2847)
+    const peopleParticipating =
+      complaints.length + complaints.reduce((sum, c) => sum + (c.upvotes || 0), 0);
+
+    return { openIssues, resolvedThisMonth, peopleParticipating };
+  }, [complaints]);
+
   const counts = useMemo(
     () => ({
       Unresolved: filteredComplaints.filter((c) => c.status === "Unresolved").length,
@@ -146,10 +205,12 @@ function Index() {
   function placesMatching(query: string) {
     const normalizedQuery = query.trim().toLowerCase();
     if (!normalizedQuery) return [];
-    return CHENNAI_PLACES.filter((place) =>
-      [place.name, ...(place.aliases ?? [])].some((value) =>
-        value.toLowerCase().includes(normalizedQuery),
-      ),
+    return CHENNAI_PLACES.filter(
+      (place) =>
+        isInsideGCC(place.lat, place.lng) &&
+        [place.name, ...(place.aliases ?? [])].some((value) =>
+          value.toLowerCase().includes(normalizedQuery),
+        ),
     );
   }
 
@@ -185,6 +246,10 @@ function Index() {
       );
       const results = (await response.json()) as Array<{ lat: string; lon: string }>;
       const result = results[0];
+      if (result && !isInsideGCC(Number(result.lat), Number(result.lon))) {
+        toast.error(`${searchQuery.trim()} is outside Greater Chennai Corporation limits`);
+        return;
+      }
       if (result) {
         setMapTarget({ lat: Number(result.lat), lng: Number(result.lon) });
         setSearchSuggestions([]);
@@ -235,14 +300,15 @@ function Index() {
 
   // Real-time Officer Panel fix handler
   function handleMarkFixed(id: string, fixUrl: string) {
+    const resolvedAt = new Date().toISOString();
     setComplaints((prev) =>
       prev.map((c) =>
         c.id === id
           ? {
             ...c,
-            status: "Resolved",
+            status: "Resolved" as const,
             fixImageUrl: fixUrl,
-            resolvedImageUrl: fixUrl,
+            resolvedAt,
           }
           : c,
       ),
@@ -251,6 +317,12 @@ function Index() {
 
   function handlePick(lat: number, lng: number) {
     if (!pickMode) return;
+    if (!isInsideGCC(lat, lng)) {
+      toast.error("Outside Chennai's 200 wards", {
+        description: "CivicLens covers the Greater Chennai Corporation area only. Pick a spot inside the outlined boundary.",
+      });
+      return;
+    }
     setPicked({ lat, lng });
     setPickMode(false);
     setDialogOpen(true);
@@ -308,6 +380,7 @@ function Index() {
 
   return (
     <div className="flex min-h-screen flex-col bg-background">
+      <SplashScreen state={splash} />
       <header className="sticky top-0 z-40 border-b border-border bg-background/95 backdrop-blur">
         <div className="mx-auto grid w-full max-w-6xl grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-3 px-4 py-3 sm:px-6">
           <div className="flex min-w-0 items-center gap-2.5">
@@ -398,6 +471,7 @@ function Index() {
           <Hero
             onExplore={() => document.getElementById("map")?.scrollIntoView({ behavior: "smooth" })}
             onReport={openForm}
+            stats={heroStats}
           />
 
           <section id="map" className="border-y border-border bg-background">
@@ -471,11 +545,11 @@ function Index() {
                     {mounted ? (
                       <Suspense fallback={<MapSkeleton />}>
                         <MapView
-                          complaints={filteredComplaints}
+                          complaints={mapComplaints}
                           onUpvote={upvote}
                           upvotedIds={upvotedIds}
                           mapTarget={mapTarget}
-                          onPickLocation={handlePick}
+                          onPickLocation={pickMode ? handlePick : undefined}
                           draft={picked}
                           onMarkFixed={handleMarkFixed}
                         />
@@ -503,7 +577,7 @@ function Index() {
 
                     {!pickMode &&
                       !dialogOpen &&
-                      filteredComplaints.length === 0 &&
+                      mapComplaints.length === 0 &&
                       !searchQuery.trim() ? (
                       <div className="pointer-events-none absolute inset-0 z-[900] flex items-center justify-center p-6">
                         <div className="pointer-events-auto max-w-xs rounded-xl border border-border bg-background/95 p-5 text-center shadow-lg backdrop-blur">
@@ -529,7 +603,7 @@ function Index() {
 
                     {!pickMode &&
                       !dialogOpen &&
-                      filteredComplaints.length === 0 &&
+                      mapComplaints.length === 0 &&
                       searchQuery.trim() ? (
                       <div className="absolute top-4 right-4 z-[1000] max-w-[min(18rem,calc(100%-2rem))] rounded-lg border border-border bg-background/95 px-3 py-2 text-xs text-muted-foreground shadow-sm backdrop-blur">
                         No matches for &apos;{searchQuery.trim()}&apos;. Try a different area or

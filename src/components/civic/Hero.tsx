@@ -1,7 +1,42 @@
 import { MapPinned, Megaphone } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
-export function Hero({ onExplore, onReport }: { onExplore: () => void; onReport: () => void }) {
+type HeroStats = {
+  openIssues: number;
+  resolvedThisMonth: number;
+  peopleParticipating: number;
+};
+
+export function Hero({
+  onExplore,
+  onReport,
+  stats,
+}: {
+  onExplore: () => void;
+  onReport: () => void;
+  stats: HeroStats;
+}) {
+  const cards = [
+    {
+      label: "OPEN ISSUES",
+      value: stats.openIssues.toLocaleString("en-IN"),
+      detail: "across Chennai",
+      valueClass: "text-red-600",
+    },
+    {
+      label: "RESOLVED THIS MONTH",
+      value: stats.resolvedThisMonth.toLocaleString("en-IN"),
+      detail: "community verified",
+      valueClass: "text-teal-700",
+    },
+    {
+      label: "PEOPLE PARTICIPATING",
+      value: stats.peopleParticipating.toLocaleString("en-IN"),
+      detail: "upvotes + reports",
+      valueClass: "text-accent",
+    },
+  ];
+
   return (
     <section className="border-b border-border bg-gradient-to-b from-accent/60 to-background">
       <div className="mx-auto w-full max-w-5xl px-4 py-10 sm:px-6 sm:py-16">
@@ -30,26 +65,7 @@ export function Hero({ onExplore, onReport }: { onExplore: () => void; onReport:
         </div>
 
         <div className="mt-10 grid grid-cols-1 gap-3 sm:grid-cols-3">
-          {[
-            {
-              label: "OPEN ISSUES",
-              value: "12",
-              detail: "across Chennai",
-              valueClass: "text-red-600",
-            },
-            {
-              label: "RESOLVED THIS MONTH",
-              value: "3",
-              detail: "community verified",
-              valueClass: "text-teal-700",
-            },
-            {
-              label: "PEOPLE PARTICIPATING",
-              value: "2,847",
-              detail: "and counting",
-              valueClass: "text-accent",
-            },
-          ].map((f) => (
+          {cards.map((f) => (
             <div key={f.label} className="border border-border bg-card p-4">
               <p className="text-[10px] font-semibold tracking-wider text-muted-foreground">
                 {f.label}

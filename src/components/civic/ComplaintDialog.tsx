@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, useMemo } from "react";
 import { Crosshair, ImagePlus, Lock, AlertTriangle, CheckCircle2, Loader2 } from "lucide-react";
 import ExifReader from "exifreader";
 import { uploadComplaintPhoto } from "@/lib/storage"; // 👈 Adjust import path to your storage utility if needed
@@ -22,6 +22,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { CATEGORIES, CATEGORY_TREE, type Complaint } from "@/data/civic";
+import { wardFor } from "@/lib/gccWards";
 
 type Props = {
   open: boolean;
@@ -65,6 +66,8 @@ export function ComplaintDialog({ open, onOpenChange, picked, onRequestPick, onS
   const [photoGps, setPhotoGps] = useState<{ lat: number; lng: number } | null>(null);
 
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+
+  const pickedWard = useMemo(() => (picked ? wardFor(picked.lat, picked.lng) : null), [picked]);
 
   const isVerified = photoAttached && !verificationError && !isAnalyzing;
   const canSubmit = title.trim().length > 2 && description.trim().length > 4 && !!picked && isVerified && !isSubmitting;
@@ -260,7 +263,7 @@ Allowed categories: [${allowedCategoriesList}]`;
         category,
         subType: subType || undefined,
         landmark: landmark.trim() || undefined,
-        area: "Chennai",
+        area: pickedWard?.name ?? "Chennai", // "Ward 142"; "Chennai" only if the pin somehow has no ward
         lat: picked.lat,
         lng: picked.lng,
         reporter: reporter.trim() || "Anonymous",
@@ -302,9 +305,18 @@ Allowed categories: [${allowedCategoriesList}]`;
             <Label>Location</Label>
             <div className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-2 rounded-lg border border-border bg-muted/50 px-3 py-2">
               <span className="min-w-0 truncate font-mono text-xs text-muted-foreground">
-                {picked
-                  ? `${picked.lat.toFixed(5)}, ${picked.lng.toFixed(5)}`
-                  : "No location selected"}
+                {picked ? (
+                  <>
+                    {picked.lat.toFixed(5)}, {picked.lng.toFixed(5)}
+                    {pickedWard ? (
+                      <span className="ml-2 font-sans font-medium text-foreground">
+                        · {pickedWard.name} · Zone {pickedWard.zone} {pickedWard.zoneName}
+                      </span>
+                    ) : null}
+                  </>
+                ) : (
+                  "No location selected"
+                )}
               </span>
               <Button
                 type="button"

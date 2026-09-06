@@ -8,6 +8,7 @@ export type Complaint = {
   description: string;
   category: string;
   subType?: string;
+  resolvedAt?: string;
   landmark?: string;
   status: ComplaintStatus;
   upvotes: number;
@@ -18,17 +19,21 @@ export type Complaint = {
   reporter?: string;
   imageUrl?: string;
   fixImageUrl?: string;
+  wardId?: number;       // from complaints.ward_id (generated from area)
 };
 
+// Find this existing type in src/data/civic.ts and add the history field:
 export type Ward = {
-  id?: number;
+  id?: string | number;
   name: string;
-  zone?: string;
   councillor: string;
   open: number;
-  resolutionRate: number;
-  avgDays: number;
+  resolutionRate: number | null;   // null = no complaints ever filed for this ward
+  avgDays: number | null;
   slaBreaches: number;
+  zone?: string;
+  // --- ADD THIS LINE ---
+  history?: { date: string; resolutionRate: number; open: number }[];
 };
 
 export type Place = {
@@ -152,245 +157,47 @@ export const CHENNAI_PLACES: Place[] = [
 ];
 
 export const CHENNAI_CENTER: [number, number] = [13.0827, 80.2707];
+// Single source of truth for the SLA window.
+// MUST match INTERVAL '7 days' in refresh_ward_stats_from_complaints() in the DB.
+export const SLA_DAYS = 7;
 
+const MS_PER_DAY = 86_400_000;
+
+/** Whole days since the complaint was raised (uses created_at date at 00:00 local). */
+export function daysOpen(c: Pick<Complaint, "date">, now: Date = new Date()): number {
+  const raised = new Date(`${c.date}T00:00:00`);
+  return Math.max(0, Math.floor((now.getTime() - raised.getTime()) / MS_PER_DAY));
+}
+
+/** Whole days from raised → resolved; null if not resolved. */
+export function daysToResolve(c: Pick<Complaint, "date" | "resolvedAt">): number | null {
+  if (!c.resolvedAt) return null;
+  const raised = new Date(`${c.date}T00:00:00`);
+  const fixed = new Date(c.resolvedAt);
+  return Math.max(0, Math.round((fixed.getTime() - raised.getTime()) / MS_PER_DAY));
+}
+
+/** True when an open complaint has exceeded the SLA window (same rule as the DB trigger). */
+export function isSlaBreached(c: Pick<Complaint, "date" | "status">, now: Date = new Date()): boolean {
+  if (c.status === "Resolved") return false;
+  return daysOpen(c, now) >= SLA_DAYS;
+}
+
+/** "5 Sep 2026" style label from YYYY-MM-DD or ISO timestamp. */
+export function formatDay(value: string): string {
+  const d = new Date(value.length === 10 ? `${value}T00:00:00` : value);
+  return d.toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" });
+}
 export const STATUS_COLOR: Record<ComplaintStatus, string> = {
   Unresolved: "#dc2626",
   "In Progress": "#eab308",
   Resolved: "#16a34a",
 };
 
-export const MOCK_COMPLAINTS: Complaint[] = [
-  {
-    id: "c1",
-    title: "Crater-sized pothole on Usman Road",
-    description:
-      "A deep pothole near the Pondy Bazaar junction has caused three two-wheeler skids this week. Unmarked and unlit at night.",
-    category: "Roads & Footpaths",
-    subType: "Pothole fill up / Repairs",
-    status: "Unresolved",
-    upvotes: 214,
-    date: "2026-08-11",
-    area: "T. Nagar",
-    lat: 13.0418,
-    lng: 80.2341,
-  },
-  {
-    id: "c2",
-    title: "Garbage pile outside Ranganathan Street",
-    description:
-      "Uncollected commercial waste has been rotting for nine days. Stray dogs scatter it across the footpath every morning.",
-    category: "Garbage & Solid Waste",
-    subType: "Overflowing Garbage Bin",
-    status: "In Progress",
-    upvotes: 168,
-    date: "2026-08-04",
-    area: "T. Nagar",
-    lat: 13.0389,
-    lng: 80.2338,
-  },
-  {
-    id: "c3",
-    title: "Streetlights dead on Venkatanarayana Road",
-    description:
-      "An entire 400m stretch has been dark since the last storm. Unsafe for women walking home after 8pm.",
-    category: "Streetlights",
-    subType: "Non burning of Street lights",
-    status: "Resolved",
-    upvotes: 92,
-    date: "2026-07-19",
-    area: "T. Nagar",
-    lat: 13.0362,
-    lng: 80.2384,
-  },
-  {
-    id: "c4",
-    title: "Sewage overflow near Velachery MRTS",
-    description:
-      "Drain manhole overflowing onto the approach road to the station. Commuters wade through it during peak hours.",
-    category: "Water & Drainage",
-    subType: "Sewage Overflow",
-    status: "Unresolved",
-    upvotes: 301,
-    date: "2026-08-16",
-    area: "Velachery",
-    lat: 12.9756,
-    lng: 80.2207,
-  },
-  {
-    id: "c5",
-    title: "Water main leak on 100 Feet Road",
-    description:
-      "Treated drinking water gushing out of a burst pipe for over two weeks. Enormous daily wastage.",
-    category: "Water & Drainage",
-    subType: "Obstruction of Water Flow",
-    status: "In Progress",
-    upvotes: 143,
-    date: "2026-08-07",
-    area: "Velachery",
-    lat: 12.9812,
-    lng: 80.2181,
-  },
-  {
-    id: "c6",
-    title: "Stray dog pack near Velachery Lake",
-    description:
-      "Aggressive pack of 8-10 dogs around the lake walkway. Two morning walkers bitten last month.",
-    category: "Public Health & Safety",
-    subType: "Death of Stray Animals",
-    status: "Unresolved",
-    upvotes: 76,
-    date: "2026-08-13",
-    area: "Velachery",
-    lat: 12.9698,
-    lng: 80.2255,
-  },
-  {
-    id: "c7",
-    title: "Broken footpath slabs on Sardar Patel Road",
-    description:
-      "Loose concrete slabs over an open drain right outside the bus stop. A child stepped through last week.",
-    category: "Roads & Footpaths",
-    subType: "Illegal parking on footpath",
-    status: "In Progress",
-    upvotes: 118,
-    date: "2026-08-02",
-    area: "Adyar",
-    lat: 13.0067,
-    lng: 80.2515,
-  },
-  {
-    id: "c8",
-    title: "Garbage bins never emptied in Kasturba Nagar",
-    description:
-      "Bins on the 3rd Main Road overflow by noon daily. Collection truck skips this lane entirely.",
-    category: "Garbage & Solid Waste",
-    subType: "Absenteeism of Sweepers",
-    status: "Resolved",
-    upvotes: 64,
-    date: "2026-07-28",
-    area: "Adyar",
-    lat: 13.0032,
-    lng: 80.2564,
-  },
-  {
-    id: "c9",
-    title: "Flooded junction at Adyar Signal",
-    description:
-      "Even 20 minutes of rain leaves knee-deep water. Stormwater drain outlet appears fully blocked.",
-    category: "Water & Drainage",
-    subType: "Stagnation of Water",
-    status: "Unresolved",
-    upvotes: 259,
-    date: "2026-08-18",
-    area: "Adyar",
-    lat: 13.0102,
-    lng: 80.2559,
-  },
-  {
-    id: "c10",
-    title: "Potholes along North Mada Street",
-    description:
-      "Temple processional route riddled with potholes after cable-laying work was left unrepaired.",
-    category: "Roads & Footpaths",
-    subType: "Pothole fill up / Repairs",
-    status: "In Progress",
-    upvotes: 187,
-    date: "2026-08-09",
-    area: "Mylapore",
-    lat: 13.0339,
-    lng: 80.2686,
-  },
-  {
-    id: "c11",
-    title: "Streetlight pole leaning dangerously",
-    description:
-      "A rusted pole near Luz Corner tilts over the footpath. Live wiring exposed at the base.",
-    category: "Streetlights",
-    subType: "Damage to the Electric pole",
-    status: "Unresolved",
-    upvotes: 133,
-    date: "2026-08-15",
-    area: "Mylapore",
-    lat: 13.0368,
-    lng: 80.2652,
-  },
-  {
-    id: "c12",
-    title: "Illegal dumping on 2nd Avenue",
-    description:
-      "Construction debris dumped nightly on the service lane, narrowing the road to a single vehicle.",
-    category: "Garbage & Solid Waste",
-    subType: "Removal of Debris",
-    status: "Unresolved",
-    upvotes: 97,
-    date: "2026-08-12",
-    area: "Anna Nagar",
-    lat: 13.0878,
-    lng: 80.2101,
-  },
-  {
-    id: "c13",
-    title: "Water tanker supply skipped for 5 days",
-    description:
-      "Metro water tanker has not reached the K Block streets. Residents buying private cans at ₹80 each.",
-    category: "Water & Drainage",
-    subType: "Obstruction of Water Flow",
-    status: "Resolved",
-    upvotes: 152,
-    date: "2026-07-24",
-    area: "Anna Nagar",
-    lat: 13.0925,
-    lng: 80.2178,
-  },
-  {
-    id: "c14",
-    title: "Open drain beside Porur Lake Road",
-    description:
-      "Unfenced drain running along the pedestrian path. No barricades, no warning signage at night.",
-    category: "Water & Drainage",
-    subType: "Desilting of Drain / Canal",
-    status: "In Progress",
-    upvotes: 88,
-    date: "2026-08-06",
-    area: "Porur",
-    lat: 13.0359,
-    lng: 80.1567,
-  },
-  {
-    id: "c15",
-    title: "Pothole cluster near Tambaram Station",
-    description:
-      "Approach road to the suburban station has over a dozen potholes. Autos refuse the last 200 metres.",
-    category: "Roads & Footpaths",
-    subType: "Pothole fill up / Repairs",
-    status: "Unresolved",
-    upvotes: 226,
-    date: "2026-08-17",
-    area: "Tambaram",
-    lat: 12.9249,
-    lng: 80.1,
-  },
-];
-
-export const WARDS: Ward[] = [
-  { id: 176, name: "Ward 176 - Thiruvanmiyur South", zone: "Zone 13 - Adyar", councillor: "V. Anandam", open: 85, resolutionRate: 22, avgDays: 24, slaBreaches: 18 },
-  { id: 35, name: "Ward 35 - Mottai Thottam", zone: "Zone 4 - Tondiarpet", councillor: "S. Jeevan", open: 78, resolutionRate: 27, avgDays: 22, slaBreaches: 16 },
-  { id: 15, name: "Ward 15 - Edyanchavadi", zone: "Zone 2 - Manali", councillor: "S. Nandhini", open: 71, resolutionRate: 31, avgDays: 20, slaBreaches: 14 },
-  { id: 1, name: "Ward 1 - Kathivakkam", zone: "Zone 1 - Thiruvottiyur", councillor: "M. Sivakumar", open: 65, resolutionRate: 36, avgDays: 18, slaBreaches: 12 },
-  { id: 84, name: "Ward 84 - Ambattur Industrial Estate", zone: "Zone 7 - Ambattur", councillor: "J. John", open: 59, resolutionRate: 41, avgDays: 16, slaBreaches: 10 },
-  { id: 145, name: "Ward 145 - Maduravoyal", zone: "Zone 11 - Valasaravakkam", councillor: "T. Sathyanathan", open: 53, resolutionRate: 46, avgDays: 15, slaBreaches: 9 },
-  { id: 142, name: "Ward 142 - Velachery North", zone: "Zone 10 - Kodambakkam", councillor: "M. Krishnamoorthy", open: 47, resolutionRate: 51, avgDays: 13, slaBreaches: 7 },
-  { id: 123, name: "Ward 123 - Mylapore Central", zone: "Zone 9 - Teynampet", councillor: "M. Saraswathi", open: 41, resolutionRate: 56, avgDays: 12, slaBreaches: 6 },
-  { id: 174, name: "Ward 174 - Adyar South", zone: "Zone 13 - Adyar", councillor: "M. Rathika", open: 36, resolutionRate: 61, avgDays: 10, slaBreaches: 5 },
-  { id: 98, name: "Ward 98 - Anna Nagar West", zone: "Zone 8 - Anna Nagar", councillor: "A. Priyadharshini", open: 31, resolutionRate: 65, avgDays: 9, slaBreaches: 4 },
-  { id: 106, name: "Ward 106 - Kilpauk South", zone: "Zone 8 - Anna Nagar", councillor: "N. Ramalingam", open: 27, resolutionRate: 69, avgDays: 8, slaBreaches: 3 },
-  { id: 112, name: "Ward 112 - T. Nagar North", zone: "Zone 9 - Teynampet", councillor: "Elizabeth Augustine", open: 23, resolutionRate: 73, avgDays: 7, slaBreaches: 3 },
-  { id: 155, name: "Ward 155 - Porur Lake", zone: "Zone 11 - Valasaravakkam", councillor: "K. Raju", open: 19, resolutionRate: 77, avgDays: 6, slaBreaches: 2 },
-  { id: 182, name: "Ward 182 - Perungudi South", zone: "Zone 14 - Perungudi", councillor: "K.P.K. Sathish Kumar", open: 15, resolutionRate: 81, avgDays: 5, slaBreaches: 1 },
-  { id: 191, name: "Ward 191 - Pallikaranai", zone: "Zone 14 - Perungudi", councillor: "J.L. Lakshmi", open: 12, resolutionRate: 85, avgDays: 4, slaBreaches: 1 },
-];
-
-export function wardStatus(rate: number): { label: string; tone: "bad" | "mid" | "good" } {
+export function wardStatus(
+  rate: number | null,
+): { label: string; tone: "bad" | "mid" | "good" | "none" } {
+  if (rate === null) return { label: "No activity", tone: "none" };
   if (rate < 30) return { label: "Failing", tone: "bad" };
   if (rate < 60) return { label: "Average", tone: "mid" };
   return { label: "Good", tone: "good" };
@@ -414,68 +221,177 @@ type DbComplaint = {
   created_at: string;
 };
 
-function fromDb(row: DbComplaint): Complaint {
-  const status = (["Unresolved", "In Progress", "Resolved"].includes(row.status)
-    ? row.status
-    : row.status === "Pending Audit"
-      ? "In Progress"
-      : "Unresolved") as ComplaintStatus;
+function fromDb(row: any): Complaint {
+  const statusRaw = row.status ?? "Unresolved";
+  const status =
+    statusRaw === "Pending Audit" ? "In Progress" : statusRaw;
 
   return {
-    id: row.id,
-    title: row.title,
+    id: String(row.id),
+    title: row.title ?? "",
     description: row.description ?? "",
-    category: row.category,
+    category: row.category ?? "",
     subType: row.sub_type ?? undefined,
     landmark: row.landmark ?? undefined,
     status,
-    upvotes: row.upvote_count ?? 0,
-    date: row.created_at?.slice(0, 10) ?? new Date().toISOString().slice(0, 10),
-    area: row.area,
+    upvotes: Number(row.upvote_count ?? 0),
+    date: row.created_at
+      ? String(row.created_at).slice(0, 10)
+      : new Date().toISOString().slice(0, 10),
+    area: row.area ?? "",
     lat: Number(row.latitude),
     lng: Number(row.longitude),
     reporter: row.user_name ?? undefined,
     imageUrl: row.photo_url ?? undefined,
     fixImageUrl: row.fix_photo_url ?? undefined,
+    // DB → UI: resolve day for auto-hide
+    // DB → UI: resolve day for auto-hide
+    resolvedAt: row.resolved_at ?? row.fixed_at ?? undefined,
+    wardId:
+      row.ward_id === null || row.ward_id === undefined ? undefined : Number(row.ward_id),
   };
 }
 
 export async function getComplaints(): Promise<Complaint[]> {
-  const { data, error } = await supabase
-    .from("complaints")
-    .select("*")
-    .order("created_at", { ascending: false });
+  try {
+    const { data, error } = await supabase
+      .from("complaints")
+      .select("*")
+      .order("created_at", { ascending: false });
 
-  if (error) {
-    console.error("getComplaints error:", error);
-    return MOCK_COMPLAINTS;
+    if (error) {
+      console.error("getComplaints error:", error);
+      return []; // empty map — DO NOT return MOCK_COMPLAINTS
+    }
+
+    return (data ?? []).map(fromDb);
+  } catch (err) {
+    console.error("getComplaints exception:", err);
+    return [];
   }
-  return (data as DbComplaint[]).map(fromDb);
 }
 
+type WardHistoryPoint = { date: string; resolutionRate: number; open: number };
+
+async function fetchAllWardHistory(sinceIso: string): Promise<any[]> {
+  // PostgREST caps a single response at 1000 rows; 200 wards × 31 days can exceed that.
+  const page = 1000;
+  let from = 0;
+  const all: any[] = [];
+  while (true) {
+    const { data, error } = await supabase
+      .from("ward_history")
+      .select("ward_id, recorded_at, open_count, resolution_rate")
+      .gte("recorded_at", sinceIso)
+      .order("recorded_at", { ascending: true })
+      .order("ward_id", { ascending: true })
+      .range(from, from + page - 1);
+    if (error) {
+      console.error("ward_history error:", error);
+      break;
+    }
+    if (!data || data.length === 0) break;
+    all.push(...data);
+    if (data.length < page) break;
+    from += page;
+  }
+  return all;
+}
+/** One complaint by id; null if not found or on error. */
+export async function getComplaintById(id: string): Promise<Complaint | null> {
+  try {
+    const { data, error } = await supabase
+      .from("complaints")
+      .select("*")
+      .eq("id", id)
+      .maybeSingle();
+
+    if (error) {
+      console.error("getComplaintById error:", error);
+      return null;
+    }
+    return data ? fromDb(data) : null;
+  } catch (err) {
+    console.error("getComplaintById exception:", err);
+    return null;
+  }
+}
+
+/** Absolute shareable URL for a complaint (client-side only). */
+export function complaintPermalink(id: string): string {
+  const origin = typeof window !== "undefined" ? window.location.origin : "";
+  return `${origin}/complaint/${id}`;
+}
+/** All complaints for one ward, newest first. Empty array on error. */
+export async function getComplaintsForWard(wardId: number): Promise<Complaint[]> {
+  try {
+    const { data, error } = await supabase
+      .from("complaints")
+      .select("*")
+      .eq("ward_id", wardId)
+      .order("created_at", { ascending: false });
+
+    if (error) {
+      console.error("getComplaintsForWard error:", error);
+      return [];
+    }
+    return (data ?? []).map(fromDb);
+  } catch (err) {
+    console.error("getComplaintsForWard exception:", err);
+    return [];
+  }
+}
 export async function getWardsFromDb(): Promise<Ward[]> {
-  const { data, error } = await supabase
-    .from("ward_analytics")
-    .select("*")
-    .order("id", { ascending: true });
+  try {
+    const since = new Date();
+    since.setDate(since.getDate() - 31);
+    const sinceIso = since.toISOString().slice(0, 10);
 
-  if (error || !data || data.length === 0) {
-    console.error("getWardsFromDb error:", error);
-    return WARDS;
+    const [wardsRes, historyRows] = await Promise.all([
+      supabase.from("ward_analytics").select("*").order("id", { ascending: true }),
+      fetchAllWardHistory(sinceIso),
+    ]);
+
+    if (wardsRes.error) {
+      console.error("getWardsFromDb error:", wardsRes.error);
+      return [];
+    }
+    const data = wardsRes.data;
+    if (!data) return [];
+
+    const historyByWard: Record<string, WardHistoryPoint[]> = {};
+    for (const h of historyRows) {
+      // skip "no data" snapshots so they don't drag trend lines to 0
+      if (h.resolution_rate === null || h.resolution_rate === undefined) continue;
+      const key = String(h.ward_id);
+      if (!historyByWard[key]) historyByWard[key] = [];
+      historyByWard[key].push({
+        date: String(h.recorded_at).slice(0, 10),
+        resolutionRate: Number(h.resolution_rate),
+        open: Number(h.open_count ?? 0),
+      });
+    }
+
+    return data.map((row: any) => ({
+      id: row.id,
+      name: row.ward_name ?? row.name ?? `Ward ${row.id}`,
+      councillor: row.councillor_name ?? row.councillor ?? "Vacant",
+      open: Number(row.open_count ?? row.open ?? 0),
+      resolutionRate:
+        row.resolution_rate === null || row.resolution_rate === undefined
+          ? null
+          : Number(row.resolution_rate),
+      avgDays:
+        row.avg_days === null || row.avg_days === undefined ? null : Number(row.avg_days),
+      slaBreaches: Number(row.sla_breaches ?? row.slaBreaches ?? 0),
+      zone: row.zone_name ?? row.zone ?? "Unknown Zone",
+      history: historyByWard[String(row.id)] ?? [],
+    }));
+  } catch (err) {
+    console.error("getWardsFromDb exception:", err);
+    return [];
   }
-
-  return data.map((row: any) => ({
-    id: row.id,
-    name: row.ward_name,
-    zone: row.zone_name ?? "Zone",
-    councillor: row.councillor_name,
-    open: row.open_count ?? 0,
-    resolutionRate: row.resolution_rate ?? 0,
-    avgDays: row.open_count > 0 ? 7 : 0,
-    slaBreaches: Math.floor((row.open_count ?? 0) * 0.15),
-  }));
 }
-
 export async function submitComplaintToDb(
   payload: Omit<Complaint, "id" | "upvotes" | "date" | "status">,
 ): Promise<{ complaint: Complaint | null; error: string | null }> {
@@ -559,17 +475,20 @@ export async function markComplaintFixed(
   complaintId: string,
   fixPhotoUrl: string,
 ): Promise<{ error: string | null }> {
+  const resolvedAt = new Date().toISOString();
+
   const { error } = await supabase
     .from("complaints")
     .update({
-      fix_photo_url: fixPhotoUrl,
       status: "Resolved",
-      resolved_at: new Date().toISOString(),
+      fix_photo_url: fixPhotoUrl,
+      resolved_at: resolvedAt,
+      fixed_at: resolvedAt,
     })
     .eq("id", complaintId);
 
   if (error) {
-    console.error("mark fixed error:", error);
+    console.error("markComplaintFixed error:", error);
     return { error: error.message };
   }
   return { error: null };

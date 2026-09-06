@@ -3,7 +3,7 @@ import {
   TileLayer,
   CircleMarker,
   Popup,
-  Rectangle,
+  GeoJSON,
   Tooltip,
   useMap,
   useMapEvents,
@@ -14,6 +14,8 @@ import { Fragment, useEffect } from "react";
 import { Clock, MapPin, ThumbsUp } from "lucide-react";
 import { toast } from "sonner";
 import { CHENNAI_CENTER, STATUS_COLOR, type Complaint } from "@/data/civic";
+import { GCC_BOUNDS, GCC_FEATURE, gccMaskFeature, isInsideGCC } from "@/lib/gccBoundary";
+import { zoneForArea } from "@/lib/gccWards";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 
@@ -27,43 +29,76 @@ if (typeof window !== "undefined") {
   });
 }
 
-const CHENNAI_BOUNDS = {
-  north: 13.25,
-  south: 12.8,
-  east: 80.35,
-  west: 80.1,
-};
+// World polygon with the GCC area cut out — built once, not per render
+const GCC_MASK = gccMaskFeature();
 
 function ClickCatcher({ onPick }: { onPick?: ((lat: number, lng: number) => void) | undefined }) {
-  useMapEvents({
+  const map = useMapEvents({
     click(e) {
-      const { lat, lng } = e.latlng;
-      const isInsideChennai =
-        lat >= CHENNAI_BOUNDS.south &&
-        lat <= CHENNAI_BOUNDS.north &&
-        lng >= CHENNAI_BOUNDS.west &&
-        lng <= CHENNAI_BOUNDS.east;
-
-      if (isInsideChennai) {
-        onPick?.(lat, lng);
-        return;
-      }
-
-      toast.error("Outside CivicLens coverage", {
-        description:
-          "This pin is outside Greater Chennai Corporation limits. Please choose a location inside the highlighted boundary.",
-      });
+      // Parent's handlePick rejects + toasts if the point is outside GCC (single source of truth, no double toast)
+      onPick?.(e.latlng.lat, e.latlng.lng);
+    },
+    mousemove(e) {
+      if (!onPick) return;
+      map
+        .getContainer()
+        .classList.toggle("outside-gcc", !isInsideGCC(e.latlng.lat, e.latlng.lng));
+    },
+    mouseout() {
+      map.getContainer().classList.remove("outside-gcc");
     },
   });
+
+  // Clear the cursor state the moment pick mode is turned off, even mid-hover
+  useEffect(() => {
+    if (!onPick) map.getContainer().classList.remove("outside-gcc");
+  }, [onPick, map]);
+
   return null;
 }
+// Trackpad pinch arrives as ctrl+wheel with tiny deltas; a mouse notch is ~100 px.
+// Leaflet uses one px-per-level for both, so whichever you tune for, the other feels wrong.
+const PINCH_PX_PER_LEVEL = 60; // lower = pinch zooms further per spread
+const WHEEL_PX_PER_LEVEL = 70; // higher = mouse wheel zooms less per notch
 
+function SmartWheelZoom() {
+  const map = useMap();
+  useEffect(() => {
+    const el = map.getContainer();
+    let acc = 0;
+    let timer: number | undefined;
+    let point: L.Point | null = null;
+
+    const onWheel = (e: WheelEvent) => {
+      e.preventDefault();
+      const dy = e.deltaMode === 1 ? e.deltaY * 20 : e.deltaMode === 2 ? e.deltaY * 60 : e.deltaY;
+      const pinch = e.ctrlKey;
+      acc += -dy / (pinch ? PINCH_PX_PER_LEVEL : WHEEL_PX_PER_LEVEL);
+      point = map.mouseEventToContainerPoint(e);
+      window.clearTimeout(timer);
+      timer = window.setTimeout(() => {
+        const snap = map.options.zoomSnap || 0.25;
+        const raw = map.getZoom() + acc;
+        acc = 0;
+        const target = Math.max(map.getMinZoom(), Math.min(map.getMaxZoom(), Math.round(raw / snap) * snap));
+        if (point && target !== map.getZoom()) map.setZoomAround(point, target, { animate: !pinch });
+      }, pinch ? 0 : 30);
+    };
+
+    el.addEventListener("wheel", onWheel, { passive: false });
+    return () => {
+      el.removeEventListener("wheel", onWheel);
+      window.clearTimeout(timer);
+    };
+  }, [map]);
+  return null;
+}
 function MapFlyTo({ target }: { target?: { lat: number; lng: number } | null }) {
   const map = useMap();
 
   useEffect(() => {
     if (!target) return;
-    map.flyTo([target.lat, target.lng], 14, { duration: 1.2 });
+    map.flyTo([target.lat, target.lng], 14, { duration: 1.6, easeLinearity: 0.15 });
   }, [target, map]);
 
   return null;
@@ -86,17 +121,6 @@ function getUnattendedDays(date: string) {
   return Math.max(0, Math.floor((Date.now() - openedAt.getTime()) / 86_400_000));
 }
 
-function getZone(area: string) {
-  const zones: Record<string, number> = {
-    "T. Nagar": 10,
-    Velachery: 13,
-    Adyar: 13,
-    Mylapore: 9,
-    "Anna Nagar": 8,
-  };
-  return zones[area] ?? 5;
-}
-
 type Props = {
   complaints: Complaint[];
   onUpvote: (id: string) => void;
@@ -106,6 +130,7 @@ type Props = {
   draft?: { lat: number; lng: number } | null | undefined;
   onMarkFixed?: (id: string, fixUrl: string) => void;
 };
+
 
 export default function MapView({
   complaints,
@@ -119,7 +144,14 @@ export default function MapView({
     <MapContainer
       center={CHENNAI_CENTER}
       zoom={12}
-      scrollWheelZoom
+      minZoom={11}
+      maxBounds={GCC_BOUNDS}
+      maxBoundsViscosity={0.85}   // slight give at the edge instead of a hard wall (1 = wall)
+      scrollWheelZoom={false}     // replaced by SmartWheelZoom below (separate pinch / wheel speeds)
+      zoomSnap={0.25}             // fractional zoom levels — keeps the smooth feel
+      zoomDelta={1}    // batch rapid wheel ticks into one animated zoom (default 40)
+      inertiaDeceleration={3000}  // longer, gentler glide after a drag (default 3000)
+      easeLinearity={0.2}        // smoother easing curve for pan animations (default 0.2)
       className="h-full w-full"
       style={{ height: "100%", width: "100%" }}
     >
@@ -127,19 +159,19 @@ export default function MapView({
         attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
         url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
       />
-      <Rectangle
-        bounds={[
-          [CHENNAI_BOUNDS.south, CHENNAI_BOUNDS.west],
-          [CHENNAI_BOUNDS.north, CHENNAI_BOUNDS.east],
-        ]}
-        pathOptions={{
-          color: "#0f766e",
-          weight: 2,
-          fillColor: "#0f766e",
-          fillOpacity: 0.06,
-          dashArray: "6 4",
-        }}
+      {/* Dim everything outside Greater Chennai Corporation */}
+      <GeoJSON
+        data={GCC_MASK}
+        interactive={false}
+        style={{ stroke: false, fillColor: "#1c1917", fillOpacity: 0.35 }}
       />
+      {/* GCC boundary outline (200 wards) */}
+      <GeoJSON
+        data={GCC_FEATURE}
+        interactive={false}
+        style={{ color: "#0f766e", weight: 2.5, fill: false }}
+      />
+      <SmartWheelZoom />
       <MapFlyTo target={mapTarget} />
       <ClickCatcher onPick={onPickLocation} />
 
@@ -153,15 +185,22 @@ export default function MapView({
 
       {complaints.map((c) => {
         const isSlaBreached =
-          c.status !== "Resolved" &&
+          c.status === "Unresolved" &&
           Date.now() - new Date(`${c.date}T00:00:00`).getTime() > 7 * 86_400_000;
+
         const markerColor = isSlaBreached
           ? "#991b1b"
-          : c.status !== "Resolved"
-            ? "#dc2626"
-            : STATUS_COLOR[c.status];
+          : c.status === "In Progress"
+            ? "#eab308"
+            : c.status === "Resolved"
+              ? "#16a34a"
+              : "#dc2626";
         const tooltipText =
-          c.status === "Resolved" ? "Resolved" : `Unattended for ${getUnattendedDays(c.date)} days`;
+          c.status === "Resolved"
+            ? "Resolved"
+            : c.status === "In Progress"
+              ? "In Progress"
+              : `Unattended for ${getUnattendedDays(c.date)} days`;
 
         const fixPhoto = c.fixImageUrl || (c as any).resolvedImageUrl;
 
@@ -339,7 +378,14 @@ export default function MapView({
                       <dt className="text-muted-foreground">Assigned Ward</dt>
                       <dd className="font-medium">{c.area}</dd>
                       <dt className="text-muted-foreground">Responsible Official</dt>
-                      <dd className="font-medium">Zonal Officer, Zone {getZone(c.area)}</dd>
+                      <dd className="font-medium">
+                        {(() => {
+                          const z = zoneForArea(c.area);
+                          return z
+                            ? `Zonal Officer, Zone ${z.zone} (${z.zoneName})`
+                            : "Zonal Officer — zone not on record";
+                        })()}
+                      </dd>
                       <dt className="text-muted-foreground">Last inspection</dt>
                       <dd className="font-medium">None recorded.</dd>
                     </dl>
