@@ -123,14 +123,10 @@ function Index() {
   useEffect(() => {
     const channel = supabase
       .channel("complaints-changes")
-      .on(
-        "postgres_changes",
-        { event: "*", schema: "public", table: "complaints" },
-        async () => {
-          const rows = await getComplaints();
-          setComplaints(rows);
-        },
-      )
+      .on("postgres_changes", { event: "*", schema: "public", table: "complaints" }, async () => {
+        const rows = await getComplaints();
+        setComplaints(rows);
+      })
       .subscribe();
 
     return () => {
@@ -175,9 +171,7 @@ function Index() {
       if (c.status !== "Resolved") return false;
       // Provide a fallback property if `resolvedAt` isn't strictly found in early schemas
       const raw = c.resolvedAt ?? (c as { resolved_at?: string }).resolved_at ?? c.date;
-      const d = new Date(
-        typeof raw === "string" && raw.length <= 10 ? `${raw}T00:00:00` : raw,
-      );
+      const d = new Date(typeof raw === "string" && raw.length <= 10 ? `${raw}T00:00:00` : raw);
       if (Number.isNaN(d.getTime())) return false;
       return d.getMonth() === month && d.getFullYear() === year;
     }).length;
@@ -270,14 +264,13 @@ function Index() {
     }
 
     // Optimistic UI
-    setComplaints((prev) =>
-      prev.map((c) => (c.id === id ? { ...c, upvotes: c.upvotes + 1 } : c)),
-    );
+    setComplaints((prev) => prev.map((c) => (c.id === id ? { ...c, upvotes: c.upvotes + 1 } : c)));
     setUpvotedIds((prev) => {
       const next = new Set(prev).add(id);
-      const storedUpvotes = JSON.parse(
-        localStorage.getItem("civiclens_upvoted") ?? "{}",
-      ) as Record<string, string[]>;
+      const storedUpvotes = JSON.parse(localStorage.getItem("civiclens_upvoted") ?? "{}") as Record<
+        string,
+        string[]
+      >;
       storedUpvotes[deviceId] = Array.from(next);
       localStorage.setItem("civiclens_upvoted", JSON.stringify(storedUpvotes));
       return next;
@@ -299,7 +292,8 @@ function Index() {
     if (!pickMode) return;
     if (!isInsideGCC(lat, lng)) {
       toast.error("Outside Chennai's 200 wards", {
-        description: "CivicLens covers the Greater Chennai Corporation area only. Pick a spot inside the outlined boundary.",
+        description:
+          "CivicLens covers the Greater Chennai Corporation area only. Pick a spot inside the outlined boundary.",
       });
       return;
     }
@@ -324,7 +318,7 @@ function Index() {
 
   async function submitComplaint(
     data: Omit<Complaint, "id" | "upvotes" | "date" | "status"> & { imageUrl?: string | undefined },
-  ) {
+  ): Promise<boolean> {
     const { complaint, error } = await submitComplaintToDb(data);
 
     if (complaint) {
@@ -336,26 +330,11 @@ function Index() {
       setDialogOpen(false);
       setPicked(null);
       toast.success("Complaint filed! Pin added to public map.");
-      return;
+      return true;
     }
 
-    // Fallback if offline / Supabase down
-    const created: Complaint = {
-      ...data,
-      id: `c-${Date.now()}`,
-      upvotes: 1,
-      status: "Unresolved",
-      date: new Date().toISOString().slice(0, 10),
-    };
-    rememberMyTicket(created.id);
-    setComplaints((prev) => [created, ...prev]);
-    setDialogOpen(false);
-    setPicked(null);
-    toast.success(
-      error
-        ? "Saved locally (DB unavailable) — pin still on map"
-        : "Complaint filed! Pin added to public map.",
-    );
+    toast.error(error || "Submission failed. Please check your connection and try again.");
+    return false;
   }
 
   return (
@@ -442,7 +421,8 @@ function Index() {
               </Link>
             </nav>
             <p className="mt-3">
-              CivicLens · Sample data for demonstration. No login, no tracking.
+              CivicLens · Student-built prototype, not affiliated with GCC. Photos and pin locations
+              are public. A device id is stored in this browser to de-dupe upvotes.
             </p>
           </footer>
         </main>
@@ -555,9 +535,9 @@ function Index() {
                     ) : null}
 
                     {!pickMode &&
-                      !dialogOpen &&
-                      mapComplaints.length === 0 &&
-                      !searchQuery.trim() ? (
+                    !dialogOpen &&
+                    mapComplaints.length === 0 &&
+                    !searchQuery.trim() ? (
                       <div className="pointer-events-none absolute inset-0 z-[900] flex items-center justify-center p-6">
                         <div className="pointer-events-auto max-w-xs rounded-xl border border-border bg-background/95 p-5 text-center shadow-lg backdrop-blur">
                           <Inbox className="mx-auto size-6 text-muted-foreground" />
@@ -581,9 +561,9 @@ function Index() {
                     ) : null}
 
                     {!pickMode &&
-                      !dialogOpen &&
-                      mapComplaints.length === 0 &&
-                      searchQuery.trim() ? (
+                    !dialogOpen &&
+                    mapComplaints.length === 0 &&
+                    searchQuery.trim() ? (
                       <div className="absolute top-4 right-4 z-[1000] max-w-[min(18rem,calc(100%-2rem))] rounded-lg border border-border bg-background/95 px-3 py-2 text-xs text-muted-foreground shadow-sm backdrop-blur">
                         No matches for &apos;{searchQuery.trim()}&apos;. Try a different area or
                         category.
@@ -659,7 +639,8 @@ function Index() {
               </Link>
             </nav>
             <p className="mt-3">
-              CivicLens · Sample data for demonstration. No login, no tracking.
+              CivicLens · Student-built prototype, not affiliated with GCC. Photos and pin locations
+              are public. A device id is stored in this browser to de-dupe upvotes.
             </p>
           </footer>
         </main>
@@ -669,6 +650,7 @@ function Index() {
         open={dialogOpen}
         onOpenChange={setDialogOpen}
         picked={picked}
+        fingerprint={deviceId ?? ""}
         onRequestPick={() => {
           setDialogOpen(false);
           setPickMode(true);

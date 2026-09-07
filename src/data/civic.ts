@@ -181,7 +181,10 @@ export function daysToResolve(c: Pick<Complaint, "date" | "resolvedAt">): number
   return Math.max(0, Math.round((fixed.getTime() - raised.getTime()) / MS_PER_DAY));
 }
 
-export function isSlaBreached(c: Pick<Complaint, "date" | "status">, now: Date = new Date()): boolean {
+export function isSlaBreached(
+  c: Pick<Complaint, "date" | "status">,
+  now: Date = new Date(),
+): boolean {
   if (c.status === "Resolved") return false;
   return daysOpen(c, now) >= SLA_DAYS;
 }
@@ -197,9 +200,10 @@ export const STATUS_COLOR: Record<ComplaintStatus, string> = {
   Resolved: "#16a34a",
 };
 
-export function wardStatus(
-  rate: number | null,
-): { label: string; tone: "bad" | "mid" | "good" | "none" } {
+export function wardStatus(rate: number | null): {
+  label: string;
+  tone: "bad" | "mid" | "good" | "none";
+} {
   if (rate === null) return { label: "No activity", tone: "none" };
   if (rate < 30) return { label: "Failing", tone: "bad" };
   if (rate < 60) return { label: "Average", tone: "mid" };
@@ -281,10 +285,17 @@ export async function getComplaints(): Promise<Complaint[]> {
 
 type WardHistoryPoint = { date: string; resolutionRate: number; open: number };
 
-async function fetchAllWardHistory(sinceIso: string): Promise<any[]> {
+type WardHistoryRow = {
+  ward_id: number;
+  recorded_at: string;
+  open_count: number | null;
+  resolution_rate: number | null;
+};
+
+async function fetchAllWardHistory(sinceIso: string): Promise<WardHistoryRow[]> {
   const page = 1000;
   let from = 0;
-  const all: any[] = [];
+  const all: WardHistoryRow[] = [];
   while (true) {
     const { data, error } = await supabase
       .from("ward_history")
@@ -298,7 +309,7 @@ async function fetchAllWardHistory(sinceIso: string): Promise<any[]> {
       break;
     }
     if (!data || data.length === 0) break;
-    all.push(...data);
+    all.push(...(data as WardHistoryRow[]));
     if (data.length < page) break;
     from += page;
   }
@@ -348,6 +359,22 @@ export async function getComplaintsForWard(wardId: number): Promise<Complaint[]>
   }
 }
 
+type WardAnalyticsRow = {
+  id: number;
+  ward_name?: string | null;
+  name?: string | null;
+  councillor_name?: string | null;
+  councillor?: string | null;
+  open_count?: number | null;
+  open?: number | null;
+  resolution_rate?: number | null;
+  avg_days?: number | null;
+  sla_breaches?: number | null;
+  slaBreaches?: number | null;
+  zone_name?: string | null;
+  zone?: string | null;
+};
+
 export async function getWardsFromDb(): Promise<Ward[]> {
   try {
     const since = new Date();
@@ -378,7 +405,7 @@ export async function getWardsFromDb(): Promise<Ward[]> {
       });
     }
 
-    return data.map((row: any) => ({
+    return (data as WardAnalyticsRow[]).map((row) => ({
       id: row.id,
       name: row.ward_name ?? row.name ?? `Ward ${row.id}`,
       councillor: row.councillor_name ?? row.councillor ?? "Vacant",
@@ -387,8 +414,7 @@ export async function getWardsFromDb(): Promise<Ward[]> {
         row.resolution_rate === null || row.resolution_rate === undefined
           ? null
           : Number(row.resolution_rate),
-      avgDays:
-        row.avg_days === null || row.avg_days === undefined ? null : Number(row.avg_days),
+      avgDays: row.avg_days === null || row.avg_days === undefined ? null : Number(row.avg_days),
       slaBreaches: Number(row.sla_breaches ?? row.slaBreaches ?? 0),
       zone: row.zone_name ?? row.zone ?? "Unknown Zone",
       history: historyByWard[String(row.id)] ?? [],
@@ -402,8 +428,13 @@ export async function getWardsFromDb(): Promise<Ward[]> {
 export async function submitComplaintToDb(
   payload: Omit<Complaint, "id" | "upvotes" | "date" | "status">,
 ): Promise<{ complaint: Complaint | null; error: string | null }> {
-  // Derive Ward automatically from coordinates using polygon math
-  wardFor(payload.lat, payload.lng);
+  const ward = wardFor(payload.lat, payload.lng);
+  if (!ward) {
+    return {
+      complaint: null,
+      error: "Location is outside Greater Chennai Corporation limits.",
+    };
+  }
 
   const { data, error } = await supabase
     .from("complaints")
@@ -416,12 +447,13 @@ export async function submitComplaintToDb(
         landmark: payload.landmark ?? null,
         latitude: payload.lat,
         longitude: payload.lng,
-        area: payload.area,
+        area: ward.name,
+        zone_num: ward.zone,
         user_name: payload.reporter ?? null,
         photo_url: payload.imageUrl ?? null,
         status: "Unresolved",
         upvote_count: 1,
-        location_trust: payload.locationTrust ?? "verified_gps",
+        location_trust: payload.locationTrust ?? "self_reported",
         reporter_fingerprint: payload.reporterFingerprint ?? "",
       },
     ])
@@ -439,9 +471,9 @@ export async function upvoteComplaintInDb(
   complaintId: string,
   fingerprint: string,
 ): Promise<{ error: string | null; duplicate?: boolean }> {
-  const { error } = await supabase.from("upvotes").insert([
-    { complaint_id: complaintId, voter_fingerprint: fingerprint },
-  ]);
+  const { error } = await supabase
+    .from("upvotes")
+    .insert([{ complaint_id: complaintId, voter_fingerprint: fingerprint }]);
 
   if (error) {
     if (error.code === "23505") return { error: null, duplicate: true };

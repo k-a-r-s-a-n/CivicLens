@@ -4,20 +4,6 @@
 
 @custom-variant dark (&:is(.dark *));
 
-/*
- * Design system definition.
- *
- * The @theme inline block maps CSS custom properties to Tailwind utility
- * classes (e.g. --color-primary -> bg-primary, text-primary).
- *
- * The :root and .dark blocks define the actual color values using oklch.
- * All colors MUST use oklch format.
- *
- * To add a new semantic color:
- * 1. Add the variable to :root (light value) and .dark (dark value)
- * 2. Register it in @theme inline as --color-<name>: var(--<name>)
- */
-
 @theme inline {
   --radius-sm: calc(var(--radius) - 4px);
   --radius-md: calc(var(--radius) - 2px);
@@ -163,6 +149,7 @@
   border-radius: var(--radius-lg);
   box-shadow: 0 12px 32px -12px oklch(0.2 0.03 152 / 0.35);
   padding: 0;
+  color: inherit;
 }
 
 .leaflet-popup-content {
@@ -197,7 +184,6 @@
 }
 
 @keyframes civic-ripple {
-
   0%,
   100% {
     opacity: 0.75;
@@ -267,13 +253,28 @@
   cursor: not-allowed;
 }
 
-/* Visible focus outlines for keyboard navigation */
+/* Keyboard focus */
 :focus-visible {
-  outline: 2px solid hsl(var(--primary));
+  outline: 2px solid var(--primary);
   outline-offset: 2px;
 }
 
-/* Ensure leaflet popups are readable by screen readers */
-.leaflet-popup-content-wrapper {
-  color: inherit;
+/* Marker clusters — CivicLens teal */
+.marker-cluster-small,
+.marker-cluster-medium,
+.marker-cluster-large {
+  background-color: oklch(0.35 0.08 180 / 0.25) !important;
+}
+
+.marker-cluster-small div,
+.marker-cluster-medium div,
+.marker-cluster-large div {
+  background-color: oklch(0.35 0.08 180 / 0.9) !important;
+  color: oklch(0.98 0.01 85) !important;
+  font-family: var(--font-body);
+  font-weight: 700;
+}
+
+.marker-cluster-large div {
+  background-color: oklch(0.35 0.08 180 / 1) !important;
 }

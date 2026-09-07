@@ -29,21 +29,18 @@ type Props = {
   onOpenChange: (open: boolean) => void;
   picked: { lat: number; lng: number } | null;
   onRequestPick: () => void;
+  fingerprint: string;
   onSubmit: (
     c: Omit<Complaint, "id" | "upvotes" | "date" | "status"> & {
       imageUrl?: string | undefined;
+      reporterFingerprint?: string | undefined;
     },
-  ) => void;
+  ) => boolean | void | Promise<boolean | void>;
 };
 
 const MAX_ALLOWED_DISTANCE_METERS = 1000;
 
-function calculateDistanceMeters(
-  lat1: number,
-  lon1: number,
-  lat2: number,
-  lon2: number,
-): number {
+function calculateDistanceMeters(lat1: number, lon1: number, lat2: number, lon2: number): number {
   const R = 6371e3;
   const rad1 = (lat1 * Math.PI) / 180;
   const rad2 = (lat2 * Math.PI) / 180;
@@ -64,6 +61,7 @@ export function ComplaintDialog({
   picked,
   onRequestPick,
   onSubmit,
+  fingerprint,
 }: Props) {
   const [category, setCategory] = useState<string>(CATEGORIES[0] ?? "Roads & Footpaths");
   const [title, setTitle] = useState("");
@@ -83,10 +81,7 @@ export function ComplaintDialog({
   const [photoGps, setPhotoGps] = useState<{ lat: number; lng: number } | null>(null);
 
   const fileInputRef = useRef<HTMLInputElement | null>(null);
-  const pickedWard = useMemo(
-    () => (picked ? wardFor(picked.lat, picked.lng) : null),
-    [picked],
-  );
+  const pickedWard = useMemo(() => (picked ? wardFor(picked.lat, picked.lng) : null), [picked]);
 
   const subTypes = CATEGORY_TREE[category];
 
@@ -104,12 +99,7 @@ export function ComplaintDialog({
 
   useEffect(() => {
     if (photoGps && picked) {
-      const distance = calculateDistanceMeters(
-        picked.lat,
-        picked.lng,
-        photoGps.lat,
-        photoGps.lng,
-      );
+      const distance = calculateDistanceMeters(picked.lat, picked.lng, photoGps.lat, photoGps.lng);
       if (distance > MAX_ALLOWED_DISTANCE_METERS) {
         setVerificationError(
           `Location Mismatch: Photo GPS is ${distance}m away from map pin (max allowed: ${MAX_ALLOWED_DISTANCE_METERS}m).`,
@@ -211,13 +201,14 @@ Allowed categories: [${allowedCategoriesList}]`;
         headers: {
           "Content-Type": "application/json",
           Authorization: `Bearer ${supabaseAnonKey}`,
-          "x-fingerprint": "browser-user",
+          "x-fingerprint": fingerprint || "anon",
         },
         body: JSON.stringify({
           imageData: base64Data,
           mimeType: file.type || "image/jpeg",
           promptText,
           categories: allowedCategoriesList,
+          fingerprint: fingerprint,
         }),
       });
 
@@ -234,17 +225,17 @@ Allowed categories: [${allowedCategoriesList}]`;
       const parsed =
         typeof aiResult.result === "string"
           ? (JSON.parse(aiResult.result) as {
-            isCivicIssue?: boolean;
-            invalidReason?: string;
-            category?: string | null;
-            summary?: string | null;
-          })
+              isCivicIssue?: boolean;
+              invalidReason?: string;
+              category?: string | null;
+              summary?: string | null;
+            })
           : (aiResult.result as {
-            isCivicIssue?: boolean;
-            invalidReason?: string;
-            category?: string | null;
-            summary?: string | null;
-          });
+              isCivicIssue?: boolean;
+              invalidReason?: string;
+              category?: string | null;
+              summary?: string | null;
+            });
 
       if (!parsed?.isCivicIssue) {
         throw new Error(parsed?.invalidReason || "No civic issue detected in photo.");
@@ -303,12 +294,12 @@ Allowed categories: [${allowedCategoriesList}]`;
     try {
       let imageUrl: string | undefined;
       if (selectedFile) {
-        imageUrl = await uploadComplaintPhoto(selectedFile, "before");
+        imageUrl = await uploadComplaintPhoto(selectedFile);
       }
 
-      // Build payload without explicit `undefined` optional keys (exactOptionalPropertyTypes)
       const payload: Omit<Complaint, "id" | "upvotes" | "date" | "status"> & {
         imageUrl?: string | undefined;
+        reporterFingerprint?: string;
       } = {
         title: title.trim(),
         description: description.trim(),
@@ -316,15 +307,19 @@ Allowed categories: [${allowedCategoriesList}]`;
         area: pickedWard?.name ?? "Chennai",
         lat: picked.lat,
         lng: picked.lng,
-        reporter: reporter.trim() || "Anonymous",
+        reporter: reporter.trim().slice(0, 80) || "Anonymous",
         locationTrust,
+        reporterFingerprint: fingerprint,
       };
 
       if (subType.trim()) payload.subType = subType.trim();
       if (landmark.trim()) payload.landmark = landmark.trim();
       if (imageUrl) payload.imageUrl = imageUrl;
 
-      onSubmit(payload);
+      const success = await onSubmit(payload);
+      if (success === false) {
+        return;
+      }
 
       setTitle("");
       setDescription("");
@@ -354,7 +349,8 @@ Allowed categories: [${allowedCategoriesList}]`;
         <DialogHeader className="text-left">
           <DialogTitle className="font-display">File a complaint</DialogTitle>
           <DialogDescription>
-            Every report is public. Attach a clear photo of the issue.
+            Independent civic prototype — not the Greater Chennai Corporation. Not for emergencies
+            (call 112). Every report and photo you submit is public.
           </DialogDescription>
         </DialogHeader>
 
@@ -475,12 +471,13 @@ Allowed categories: [${allowedCategoriesList}]`;
             />
             <button
               type="button"
-              className={`flex w-full flex-col items-center justify-center gap-1 rounded-lg border border-dashed px-4 py-6 text-center transition-colors ${verificationError
+              className={`flex w-full flex-col items-center justify-center gap-1 rounded-lg border border-dashed px-4 py-6 text-center transition-colors ${
+                verificationError
                   ? "border-destructive/60 bg-destructive/10"
                   : photoAttached
                     ? "border-emerald-500/60 bg-emerald-500/10"
                     : "border-border bg-muted/40"
-                }`}
+              }`}
               onClick={() => fileInputRef.current?.click()}
             >
               {verificationError ? (
@@ -502,8 +499,9 @@ Allowed categories: [${allowedCategoriesList}]`;
               </span>
 
               <span
-                className={`text-[11px] ${verificationError ? "font-medium text-destructive" : "text-muted-foreground"
-                  }`}
+                className={`text-[11px] ${
+                  verificationError ? "font-medium text-destructive" : "text-muted-foreground"
+                }`}
               >
                 {isAnalyzing
                   ? "Analyzing image defect..."
@@ -530,7 +528,8 @@ Allowed categories: [${allowedCategoriesList}]`;
               id="name"
               placeholder="Leave blank to stay anonymous"
               value={reporter}
-              onChange={(e) => setReporter(e.target.value)}
+              onChange={(e) => setReporter(e.target.value.slice(0, 80))}
+              maxLength={80}
             />
           </div>
         </div>

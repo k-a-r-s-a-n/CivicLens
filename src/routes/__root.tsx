@@ -7,10 +7,26 @@ import {
   HeadContent,
   Scripts,
 } from "@tanstack/react-router";
+import "@/lib/error-capture";
 import { useEffect, type ReactNode } from "react";
+import * as Sentry from "@sentry/react";
 
 import appCss from "../styles.css?url";
 import { Toaster } from "@/components/ui/sonner";
+
+function initSentry() {
+  const dsn = import.meta.env["VITE_SENTRY_DSN"] as string | undefined;
+  if (!dsn || typeof window === "undefined") return;
+  Sentry.init({
+    dsn,
+    environment: import.meta.env.MODE,
+    tracesSampleRate: 0.05,
+    sendDefaultPii: false,
+  });
+  if (import.meta.env.DEV) {
+    (window as unknown as { Sentry: typeof Sentry }).Sentry = Sentry;
+  }
+}
 
 function NotFoundComponent() {
   return (
@@ -35,8 +51,11 @@ function NotFoundComponent() {
 }
 
 function ErrorComponent({ error, reset }: { error: Error; reset: () => void }) {
-  console.error(error);
   const router = useRouter();
+
+  useEffect(() => {
+    Sentry.captureException(error);
+  }, [error]);
 
   return (
     <div className="flex min-h-screen items-center justify-center bg-background px-4">
@@ -88,7 +107,6 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
       },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary_large_image" },
-      // PWA theme color (status bar on phones)
       { name: "theme-color", content: "#0f766e" },
       { name: "mobile-web-app-capable", content: "yes" },
       { name: "apple-mobile-web-app-capable", content: "yes" },
@@ -102,7 +120,6 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
         href: "https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Inter:wght@400;500;600;700;800&display=swap",
       },
       { rel: "icon", href: "/favicon.ico?v=2", type: "image/x-icon", sizes: "any" },
-      // ★ This is what Chrome needs to show Application → Manifest
       { rel: "manifest", href: "/manifest.webmanifest" },
       { rel: "apple-touch-icon", href: "/pwa-192.png" },
     ],
@@ -130,6 +147,10 @@ function RootShell({ children }: { children: ReactNode }) {
 
 function RootComponent() {
   const { queryClient } = Route.useRouteContext();
+
+  useEffect(() => {
+    initSentry();
+  }, []);
 
   return (
     <QueryClientProvider client={queryClient}>

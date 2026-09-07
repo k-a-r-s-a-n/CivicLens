@@ -10,7 +10,8 @@ const priorities = [
   {
     number: "02",
     title: "Citizen Privacy First",
-    description: "No phone numbers stored. No location tracking. No harassment risk.",
+    description:
+      "No phone numbers or accounts required. We do store the public coordinates, photo, and any name you choose to add.",
   },
   {
     number: "03",
@@ -20,13 +21,14 @@ const priorities = [
   {
     number: "04",
     title: "Community Truth",
-    description: "Neighbors verify each complaint. Fake closures collapse under public scrutiny.",
+    description:
+      "Neighbours can verify a complaint. This adds public weight — it is not an official audit or fraud check.",
   },
   {
     number: "05",
     title: "Free & Open Forever",
     description:
-      "Zero infrastructure cost. Scales to every Indian municipality without licensing fees.",
+      "Runs on low-cost managed infrastructure so it can scale to other Indian municipalities.",
   },
 ];
 
@@ -200,7 +202,8 @@ function About() {
           <ShieldCheck className="mt-0.5 size-4 shrink-0 text-primary" />
           <p>
             Built in the spirit of FixMyStreet UK (citizen-built in 2008, government-adopted in
-            2013) and NYC 311 (saves $300M annually). India&apos;s turn.
+            2013) and NYC 311 (saves $300M annually). India&apos;s turn. This is an independent
+            student project, not an official government service.
           </p>
         </div>
         <div className="mx-auto mt-4 max-w-5xl">

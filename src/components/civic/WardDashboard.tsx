@@ -1,5 +1,18 @@
 import { useEffect, useState, useMemo, useRef, useCallback, Fragment } from "react";
-import { Search, Building2, UserX, BarChart3, AlertTriangle, ChevronDown, ChevronUp, MapPin, Activity, ChevronLeft, ChevronRight, X } from "lucide-react";
+import {
+  Search,
+  Building2,
+  UserX,
+  BarChart3,
+  AlertTriangle,
+  ChevronDown,
+  ChevronUp,
+  MapPin,
+  Activity,
+  ChevronLeft,
+  ChevronRight,
+  X,
+} from "lucide-react";
 import {
   BarChart,
   Bar,
@@ -36,7 +49,9 @@ export function WardDashboard() {
 
   // State
   const [trendWindow, setTrendWindow] = useState<"Daily" | "Weekly" | "Monthly">("Weekly");
-  const [myWardId, setMyWardId] = useState<string | null>(() => localStorage.getItem("civiclens:myWard"));
+  const [myWardId, setMyWardId] = useState<string | null>(() =>
+    localStorage.getItem("civiclens:myWard"),
+  );
   const [wardSearch, setWardSearch] = useState("");
   const [isWardSearchFocused, setIsWardSearchFocused] = useState(false);
   const [showDetailedChart, setShowDetailedChart] = useState(false);
@@ -53,12 +68,16 @@ export function WardDashboard() {
 
   const tableContainerRef = useRef<HTMLDivElement>(null);
 
-  useEffect(() => { setExpandedWardId(null); }, [currentPage]);
+  useEffect(() => {
+    setExpandedWardId(null);
+  }, [currentPage]);
 
   const isMountedRef = useRef(true);
   useEffect(() => {
     isMountedRef.current = true;
-    return () => { isMountedRef.current = false; };
+    return () => {
+      isMountedRef.current = false;
+    };
   }, []);
 
   const loadWards = useCallback(async (silent = false) => {
@@ -229,40 +248,45 @@ export function WardDashboard() {
       });
     });
 
-    return Object.entries(map).map(([zone, data]) => {
-      const avgRate: number | null = data.count > 0 ? Math.round(data.totalRate / data.count) : null;
-      const pastAvgRate = data.count > 0 ? Math.round(data.pastRateSum / data.count) : 0;
+    return Object.entries(map)
+      .map(([zone, data]) => {
+        const avgRate: number | null =
+          data.count > 0 ? Math.round(data.totalRate / data.count) : null;
+        const pastAvgRate = data.count > 0 ? Math.round(data.pastRateSum / data.count) : 0;
 
-      const aggregatedHistory = data.hasRealHistory
-        ? Object.keys(data.historyMap)
-          .sort()
-          .map((date) => {
-            const dayEntry = data.historyMap[date];
-            const avg = dayEntry ? Math.round(dayEntry.sum / (dayEntry.count || 1)) : 0;
-            return { date, resolutionRate: avg };
-          })
-          .slice(-windowDays - 1)
-        : [];
+        const aggregatedHistory = data.hasRealHistory
+          ? Object.keys(data.historyMap)
+              .sort()
+              .map((date) => {
+                const dayEntry = data.historyMap[date];
+                const avg = dayEntry ? Math.round(dayEntry.sum / (dayEntry.count || 1)) : 0;
+                return { date, resolutionRate: avg };
+              })
+              .slice(-windowDays - 1)
+          : [];
 
-      return {
-        zone,
-        shortZone: zone.replace(/^Zone\s*/i, "Z").slice(0, 15),
-        unresolved: data.unresolved,
-        avgRate,
-        delta: data.hasRealHistory && avgRate !== null ? avgRate - pastAvgRate : 0,
-        hasRealHistory: data.hasRealHistory,
-        history: aggregatedHistory,
-      };
-    }).sort((a, b) => {
-      const numA = parseInt(a.zone.match(/\d+/)?.[0] || "0", 10);
-      const numB = parseInt(b.zone.match(/\d+/)?.[0] || "0", 10);
-      return numA - numB;
-    });
+        return {
+          zone,
+          shortZone: zone.replace(/^Zone\s*/i, "Z").slice(0, 15),
+          unresolved: data.unresolved,
+          avgRate,
+          delta: data.hasRealHistory && avgRate !== null ? avgRate - pastAvgRate : 0,
+          hasRealHistory: data.hasRealHistory,
+          history: aggregatedHistory,
+        };
+      })
+      .sort((a, b) => {
+        const numA = parseInt(a.zone.match(/\d+/)?.[0] || "0", 10);
+        const numB = parseInt(b.zone.match(/\d+/)?.[0] || "0", 10);
+        return numA - numB;
+      });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [enhancedWards, windowDays]);
 
   const zonesList = useMemo(() => {
-    const list = Array.from(new Set(enhancedWards.map((w) => w.zone || "GCC"))).filter(Boolean) as string[];
+    const list = Array.from(new Set(enhancedWards.map((w) => w.zone || "GCC"))).filter(
+      Boolean,
+    ) as string[];
     list.sort((a, b) => {
       const numA = parseInt(a.match(/\d+/)?.[0] || "0", 10);
       const numB = parseInt(b.match(/\d+/)?.[0] || "0", 10);
@@ -309,10 +333,9 @@ export function WardDashboard() {
   const heroSearchResults = useMemo(() => {
     if (!wardSearch.trim()) return [];
     const q = wardSearch.toLowerCase();
-    return enhancedWards.filter((w) =>
-      w.name.toLowerCase().includes(q) ||
-      w.councillor.toLowerCase().includes(q)
-    ).slice(0, 5);
+    return enhancedWards
+      .filter((w) => w.name.toLowerCase().includes(q) || w.councillor.toLowerCase().includes(q))
+      .slice(0, 5);
   }, [enhancedWards, wardSearch]);
 
   const pinnedWard = enhancedWards.find((w) => w.idStr === myWardId);
@@ -351,7 +374,9 @@ export function WardDashboard() {
                     }}
                   >
                     <span className="font-semibold">{w.name}</span>
-                    <span className="text-[10px] text-muted-foreground">{w.zone} • {w.councillor}</span>
+                    <span className="text-[10px] text-muted-foreground">
+                      {w.zone} • {w.councillor}
+                    </span>
                   </button>
                 ))}
               </div>
@@ -367,7 +392,9 @@ export function WardDashboard() {
                 <p className="flex items-center gap-1.5 text-[10px] font-bold tracking-wider text-primary uppercase">
                   <MapPin className="size-3" /> Your Pinned Ward
                 </p>
-                <h3 className="mt-1 font-display text-xl font-bold text-foreground">{pinnedWard.name}</h3>
+                <h3 className="mt-1 font-display text-xl font-bold text-foreground">
+                  {pinnedWard.name}
+                </h3>
                 <p className="text-xs text-muted-foreground">{pinnedWard.zone}</p>
               </div>
               <div className="flex items-center gap-1">
@@ -379,7 +406,16 @@ export function WardDashboard() {
                 >
                   {showPinnedLog ? "Hide complaints" : "View complaints"}
                 </Button>
-                <Button variant="ghost" size="sm" className="h-6 px-2 text-[10px]" onClick={() => { setMyWardId(null); setShowPinnedLog(false); localStorage.removeItem("civiclens:myWard"); }}>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-6 px-2 text-[10px]"
+                  onClick={() => {
+                    setMyWardId(null);
+                    setShowPinnedLog(false);
+                    localStorage.removeItem("civiclens:myWard");
+                  }}
+                >
                   Unpin
                 </Button>
               </div>
@@ -392,14 +428,20 @@ export function WardDashboard() {
               <div className="pl-4">
                 <p className="text-[10px] uppercase text-muted-foreground">Resolution Rate</p>
                 <div className="flex items-baseline gap-2">
-                  <p className={`font-mono text-lg font-bold ${pinnedWard.resolutionRate === null ? "text-muted-foreground" : "text-emerald-600"}`}>
-                    {pinnedWard.resolutionRate === null ? "No activity" : `${pinnedWard.resolutionRate}%`}
+                  <p
+                    className={`font-mono text-lg font-bold ${pinnedWard.resolutionRate === null ? "text-muted-foreground" : "text-emerald-600"}`}
+                  >
+                    {pinnedWard.resolutionRate === null
+                      ? "No activity"
+                      : `${pinnedWard.resolutionRate}%`}
                   </p>
                   {pinnedWard.hasTrend && pinnedWard.resolutionRate !== null ? (
                     (() => {
                       const diff = computeDelta(pinnedWard);
                       return (
-                        <span className={`text-[10px] font-bold ${diff > 0 ? "text-emerald-600" : diff < 0 ? "text-destructive" : "text-muted-foreground"}`}>
+                        <span
+                          className={`text-[10px] font-bold ${diff > 0 ? "text-emerald-600" : diff < 0 ? "text-destructive" : "text-muted-foreground"}`}
+                        >
                           {diff > 0 ? "▲" : diff < 0 ? "▼" : "—"} {Math.abs(diff)}%
                         </span>
                       );
@@ -417,30 +459,44 @@ export function WardDashboard() {
       {/* Pinned ward — full complaint record */}
       {pinnedWard && showPinnedLog && Number.isFinite(Number(pinnedWard.id)) && (
         <div className="mb-10">
-          <WardComplaintLog wardId={Number(pinnedWard.id)} wardName={pinnedWard.name} refreshToken={refreshToken} />
+          <WardComplaintLog
+            wardId={Number(pinnedWard.id)}
+            wardName={pinnedWard.name}
+            refreshToken={refreshToken}
+          />
         </div>
       )}
 
       {/* City Pulse Strip */}
       <div className="mb-8 grid grid-cols-2 gap-3 sm:grid-cols-4">
         <div className="rounded-lg border border-border bg-card p-4 shadow-sm">
-          <p className="text-[10px] font-semibold tracking-wider text-muted-foreground uppercase">City Open Complaints</p>
+          <p className="text-[10px] font-semibold tracking-wider text-muted-foreground uppercase">
+            City Open Complaints
+          </p>
           <p className="mt-1 font-mono text-2xl font-bold text-foreground">{cityStats.open}</p>
         </div>
         <div className="rounded-lg border border-border bg-card p-4 shadow-sm">
-          <p className="text-[10px] font-semibold tracking-wider text-muted-foreground uppercase">Avg Improvement ({trendWindow})</p>
+          <p className="text-[10px] font-semibold tracking-wider text-muted-foreground uppercase">
+            Avg Improvement ({trendWindow})
+          </p>
           <p className="mt-1 flex items-center gap-1 font-mono text-2xl font-bold text-emerald-600">
             {cityStats.resolved7d > 0 ? "+" : ""}
             {cityStats.resolved7d}%
           </p>
         </div>
         <div className="rounded-lg border border-border bg-card p-4 shadow-sm">
-          <p className="text-[10px] font-semibold tracking-wider text-muted-foreground uppercase">Stalled Wards</p>
+          <p className="text-[10px] font-semibold tracking-wider text-muted-foreground uppercase">
+            Stalled Wards
+          </p>
           <p className="mt-1 font-mono text-2xl font-bold text-amber-600">{cityStats.stalled}</p>
         </div>
         <div className="rounded-lg border border-border bg-card p-4 shadow-sm">
-          <p className="text-[10px] font-semibold tracking-wider text-muted-foreground uppercase">SLA Breach Rate</p>
-          <p className="mt-1 font-mono text-2xl font-bold text-destructive">{cityStats.breachRate}%</p>
+          <p className="text-[10px] font-semibold tracking-wider text-muted-foreground uppercase">
+            SLA Breach Rate
+          </p>
+          <p className="mt-1 font-mono text-2xl font-bold text-destructive">
+            {cityStats.breachRate}%
+          </p>
         </div>
       </div>
 
@@ -477,7 +533,9 @@ export function WardDashboard() {
             <div className="flex w-full items-start justify-between">
               <p className="truncate text-[11px] font-bold text-foreground">{z.shortZone}</p>
               {z.hasRealHistory ? (
-                <span className={`text-[10px] font-bold ${z.delta > 0 ? "text-emerald-500" : z.delta < 0 ? "text-destructive" : "text-muted-foreground"}`}>
+                <span
+                  className={`text-[10px] font-bold ${z.delta > 0 ? "text-emerald-500" : z.delta < 0 ? "text-destructive" : "text-muted-foreground"}`}
+                >
                   {z.delta > 0 ? "▲" : z.delta < 0 ? "▼" : ""} {Math.abs(z.delta)}pts
                 </span>
               ) : (
@@ -491,8 +549,15 @@ export function WardDashboard() {
               {z.hasRealHistory && z.history.length >= 2 ? (
                 <ResponsiveContainer width="100%" height="100%">
                   <LineChart data={z.history}>
-                    <YAxis domain={['dataMin - 5', 'dataMax + 5']} hide />
-                    <Line type="monotone" dataKey="resolutionRate" stroke={z.delta >= 0 ? "#10b981" : "#ef4444"} strokeWidth={2} dot={false} isAnimationActive={false} />
+                    <YAxis domain={["dataMin - 5", "dataMax + 5"]} hide />
+                    <Line
+                      type="monotone"
+                      dataKey="resolutionRate"
+                      stroke={z.delta >= 0 ? "#10b981" : "#ef4444"}
+                      strokeWidth={2}
+                      dot={false}
+                      isAnimationActive={false}
+                    />
                   </LineChart>
                 </ResponsiveContainer>
               ) : (
@@ -508,14 +573,28 @@ export function WardDashboard() {
       {/* Collapsible Detailed Chart - HONEST DATA ONLY */}
       {!isLoading && zoneStats.length > 0 && (
         <div className="mt-4 rounded-xl border border-border bg-card shadow-sm">
-          <button onClick={() => setShowDetailedChart(!showDetailedChart)} className="flex w-full items-center justify-between p-4 text-xs font-semibold text-muted-foreground hover:bg-muted/30">
-            <span className="flex items-center gap-2"><BarChart3 className="size-4" /> VIEW DETAILED ZONE BREAKDOWN</span>
-            {showDetailedChart ? <ChevronUp className="size-4" /> : <ChevronDown className="size-4" />}
+          <button
+            onClick={() => setShowDetailedChart(!showDetailedChart)}
+            className="flex w-full items-center justify-between p-4 text-xs font-semibold text-muted-foreground hover:bg-muted/30"
+          >
+            <span className="flex items-center gap-2">
+              <BarChart3 className="size-4" /> VIEW DETAILED ZONE BREAKDOWN
+            </span>
+            {showDetailedChart ? (
+              <ChevronUp className="size-4" />
+            ) : (
+              <ChevronDown className="size-4" />
+            )}
           </button>
           {showDetailedChart && (
             <div className="border-t border-border p-5 h-[320px] w-full">
               <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={zoneStats} margin={{ top: 8, right: 8, left: -20, bottom: 8 }} barCategoryGap="20%" barGap={2}>
+                <BarChart
+                  data={zoneStats}
+                  margin={{ top: 8, right: 8, left: -20, bottom: 8 }}
+                  barCategoryGap="20%"
+                  barGap={2}
+                >
                   <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e5e5e5" />
                   <XAxis
                     dataKey="shortZone"
@@ -527,7 +606,12 @@ export function WardDashboard() {
                     textAnchor={zoneStats.length > 8 ? "end" : "middle"}
                     height={zoneStats.length > 8 ? 60 : 30}
                   />
-                  <YAxis tick={{ fontSize: 11, fill: "#737373" }} tickLine={false} axisLine={false} allowDecimals={false} />
+                  <YAxis
+                    tick={{ fontSize: 11, fill: "#737373" }}
+                    tickLine={false}
+                    axisLine={false}
+                    allowDecimals={false}
+                  />
                   <Tooltip
                     cursor={{ fill: "#f5f5f5" }}
                     contentStyle={{ fontSize: 12, borderRadius: 8 }}
@@ -543,8 +627,20 @@ export function WardDashboard() {
                       v === "unresolved" ? "Open Issues" : v === "avgRate" ? "Avg Resolution %" : v
                     }
                   />
-                  <Bar dataKey="unresolved" name="unresolved" fill="#e11d48" radius={[4, 4, 0, 0]} maxBarSize={40} />
-                  <Bar dataKey="avgRate" name="avgRate" fill="#3b82f6" radius={[4, 4, 0, 0]} maxBarSize={40} />
+                  <Bar
+                    dataKey="unresolved"
+                    name="unresolved"
+                    fill="#e11d48"
+                    radius={[4, 4, 0, 0]}
+                    maxBarSize={40}
+                  />
+                  <Bar
+                    dataKey="avgRate"
+                    name="avgRate"
+                    fill="#3b82f6"
+                    radius={[4, 4, 0, 0]}
+                    maxBarSize={40}
+                  />
                 </BarChart>
               </ResponsiveContainer>
             </div>
@@ -557,7 +653,8 @@ export function WardDashboard() {
         <div className="mt-6 rounded-xl border border-destructive/20 bg-destructive/5 p-4 shadow-sm">
           <div className="flex items-center justify-between">
             <h3 className="flex items-center gap-2 text-xs font-bold tracking-wider text-destructive uppercase">
-              <AlertTriangle className="size-4" /> Attention Needed ({stalledWardsList.length} Wards)
+              <AlertTriangle className="size-4" /> Attention Needed ({stalledWardsList.length}{" "}
+              Wards)
             </h3>
             <Button
               variant="outline"
@@ -586,7 +683,9 @@ export function WardDashboard() {
                 className="rounded border border-destructive/10 bg-background/50 p-2 text-left transition-all hover:bg-destructive/10 hover:border-destructive/30"
               >
                 <p className="truncate text-[11px] font-bold text-foreground">{w.name}</p>
-                <p className="text-[10px] text-muted-foreground">{w.open} open • rate {w.resolutionRate ?? 0}%</p>
+                <p className="text-[10px] text-muted-foreground">
+                  {w.open} open • rate {w.resolutionRate ?? 0}%
+                </p>
               </button>
             ))}
           </div>
@@ -594,10 +693,15 @@ export function WardDashboard() {
       )}
 
       {/* Ward Performance Table Header Actions */}
-      <div ref={tableContainerRef} className="mt-10 flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between scroll-mt-6">
+      <div
+        ref={tableContainerRef}
+        className="mt-10 flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between scroll-mt-6"
+      >
         <div>
           <div className="flex items-center gap-2">
-            <h2 className="font-display text-2xl font-bold tracking-tight text-foreground">Ward Rankings</h2>
+            <h2 className="font-display text-2xl font-bold tracking-tight text-foreground">
+              Ward Rankings
+            </h2>
             {filterStalledOnly && (
               <Badge variant="destructive" className="flex items-center gap-1 text-[10px]">
                 Showing Stalled Wards Only
@@ -608,9 +712,17 @@ export function WardDashboard() {
           <p className="mt-1 flex items-center gap-2 text-xs text-muted-foreground">
             Full accountability log across 200 wards.
             {lastSync && (
-              <span className="inline-flex items-center gap-1 text-[10px]" title="Updates automatically when any complaint changes">
+              <span
+                className="inline-flex items-center gap-1 text-[10px]"
+                title="Updates automatically when any complaint changes"
+              >
                 <span className="size-1.5 animate-pulse rounded-full bg-emerald-500" />
-                Live · synced {(() => { void tick; const s = Math.floor((Date.now() - lastSync.getTime()) / 1000); return s < 10 ? "just now" : s < 60 ? `${s}s ago` : `${Math.floor(s / 60)}m ago`; })()}
+                Live · synced{" "}
+                {(() => {
+                  void tick;
+                  const s = Math.floor((Date.now() - lastSync.getTime()) / 1000);
+                  return s < 10 ? "just now" : s < 60 ? `${s}s ago` : `${Math.floor(s / 60)}m ago`;
+                })()}
               </span>
             )}
           </p>
@@ -621,16 +733,26 @@ export function WardDashboard() {
             <Input
               placeholder="Filter table..."
               value={search}
-              onChange={(e) => { setSearch(e.target.value); setCurrentPage(1); }}
+              onChange={(e) => {
+                setSearch(e.target.value);
+                setCurrentPage(1);
+              }}
               className="h-9 pl-9 text-xs"
             />
           </div>
           <select
             value={selectedZone}
-            onChange={(e) => { setSelectedZone(e.target.value); setCurrentPage(1); }}
+            onChange={(e) => {
+              setSelectedZone(e.target.value);
+              setCurrentPage(1);
+            }}
             className="h-9 rounded-md border border-input bg-background px-3 py-1 text-xs shadow-sm"
           >
-            {zonesList.map((z) => (<option key={z} value={z}>{z === "All" ? "All Zones" : z}</option>))}
+            {zonesList.map((z) => (
+              <option key={z} value={z}>
+                {z === "All" ? "All Zones" : z}
+              </option>
+            ))}
           </select>
         </div>
       </div>
@@ -655,11 +777,21 @@ export function WardDashboard() {
             </thead>
             <tbody className="divide-y divide-border">
               {isLoading ? (
-                <tr><td colSpan={10} className="p-12 text-center text-muted-foreground"><span className="inline-block size-4 animate-spin rounded-full border-2 border-primary border-t-transparent mr-2" />Fetching...</td></tr>
+                <tr>
+                  <td colSpan={10} className="p-12 text-center text-muted-foreground">
+                    <span className="inline-block size-4 animate-spin rounded-full border-2 border-primary border-t-transparent mr-2" />
+                    Fetching...
+                  </td>
+                </tr>
               ) : paginatedWards.length === 0 ? (
                 <tr>
                   <td colSpan={10} className="p-12 text-center text-muted-foreground">
-                    No matches found. {filterStalledOnly && <Button variant="link" size="sm" onClick={() => setFilterStalledOnly(false)}>Clear filter</Button>}
+                    No matches found.{" "}
+                    {filterStalledOnly && (
+                      <Button variant="link" size="sm" onClick={() => setFilterStalledOnly(false)}>
+                        Clear filter
+                      </Button>
+                    )}
                   </td>
                 </tr>
               ) : (
@@ -677,33 +809,70 @@ export function WardDashboard() {
 
                   return (
                     <Fragment key={w.idStr}>
-                      <tr className={`transition-colors hover:bg-muted/40 h-[64px] ${isExpanded ? "bg-primary/5" : ""}`}>
+                      <tr
+                        className={`transition-colors hover:bg-muted/40 h-[64px] ${isExpanded ? "bg-primary/5" : ""}`}
+                      >
                         <td className="p-2 text-center">
                           {canExpand && (
                             <button
                               type="button"
                               onClick={() => setExpandedWardId(isExpanded ? null : w.idStr)}
                               aria-expanded={isExpanded}
-                              aria-label={isExpanded ? `Hide complaints for ${w.name}` : `View complaints for ${w.name}`}
+                              aria-label={
+                                isExpanded
+                                  ? `Hide complaints for ${w.name}`
+                                  : `View complaints for ${w.name}`
+                              }
                               title={isExpanded ? "Hide complaints" : "View complaints"}
-                              className={`inline-flex size-7 items-center justify-center rounded-md border transition-colors ${isExpanded ? "border-primary bg-primary text-primary-foreground" : "border-border text-muted-foreground hover:border-primary/50 hover:text-foreground"
-                                }`}
+                              className={`inline-flex size-7 items-center justify-center rounded-md border transition-colors ${
+                                isExpanded
+                                  ? "border-primary bg-primary text-primary-foreground"
+                                  : "border-border text-muted-foreground hover:border-primary/50 hover:text-foreground"
+                              }`}
                             >
-                              {isExpanded ? <ChevronUp className="size-3.5" /> : <ChevronDown className="size-3.5" />}
+                              {isExpanded ? (
+                                <ChevronUp className="size-3.5" />
+                              ) : (
+                                <ChevronDown className="size-3.5" />
+                              )}
                             </button>
                           )}
                         </td>
-                        <td className="p-3.5 font-mono text-muted-foreground">{String(overallRank).padStart(2, "0")}</td>
-                        <td className="p-3.5"><p className="font-semibold text-foreground truncate max-w-[120px]">{w.name}</p><p className="text-[10px] text-muted-foreground">{w.zone || "Zone"}</p></td>
-                        <td className="p-3.5">{isVacant ? <span className="inline-flex items-center gap-1 rounded bg-amber-500/10 px-2 py-0.5 text-[10px] text-amber-700"><UserX className="size-3" /> Vacant</span> : <span className="font-medium truncate max-w-[100px] block">{w.councillor}</span>}</td>
-                        <td className="p-3.5 text-center font-mono font-bold text-destructive">{w.open}</td>
+                        <td className="p-3.5 font-mono text-muted-foreground">
+                          {String(overallRank).padStart(2, "0")}
+                        </td>
+                        <td className="p-3.5">
+                          <p className="font-semibold text-foreground truncate max-w-[120px]">
+                            {w.name}
+                          </p>
+                          <p className="text-[10px] text-muted-foreground">{w.zone || "Zone"}</p>
+                        </td>
+                        <td className="p-3.5">
+                          {isVacant ? (
+                            <span className="inline-flex items-center gap-1 rounded bg-amber-500/10 px-2 py-0.5 text-[10px] text-amber-700">
+                              <UserX className="size-3" /> Vacant
+                            </span>
+                          ) : (
+                            <span className="font-medium truncate max-w-[100px] block">
+                              {w.councillor}
+                            </span>
+                          )}
+                        </td>
+                        <td className="p-3.5 text-center font-mono font-bold text-destructive">
+                          {w.open}
+                        </td>
                         <td className="p-3.5">
                           {rate === null ? (
-                            <span className="text-[11px] text-muted-foreground">No activity yet</span>
+                            <span className="text-[11px] text-muted-foreground">
+                              No activity yet
+                            </span>
                           ) : (
                             <div className="flex items-center gap-2">
                               <div className="h-2 w-16 overflow-hidden rounded-full bg-muted">
-                                <div className={`h-full ${rate >= 60 ? "bg-emerald-500" : rate >= 30 ? "bg-amber-500" : "bg-destructive"}`} style={{ width: `${Math.max(rate, 5)}%` }} />
+                                <div
+                                  className={`h-full ${rate >= 60 ? "bg-emerald-500" : rate >= 30 ? "bg-amber-500" : "bg-destructive"}`}
+                                  style={{ width: `${Math.max(rate, 5)}%` }}
+                                />
                               </div>
                               <span className="font-mono text-[11px] font-semibold">{rate}%</span>
                             </div>
@@ -711,7 +880,9 @@ export function WardDashboard() {
                         </td>
                         <td className="p-3.5 text-center font-mono">
                           {hasTrend && rate !== null ? (
-                            <span className={`rounded px-1.5 py-0.5 text-[10px] font-bold ${delta > 0 ? "bg-emerald-500/10 text-emerald-600" : delta < 0 ? "bg-destructive/10 text-destructive" : "text-muted-foreground"}`}>
+                            <span
+                              className={`rounded px-1.5 py-0.5 text-[10px] font-bold ${delta > 0 ? "bg-emerald-500/10 text-emerald-600" : delta < 0 ? "bg-destructive/10 text-destructive" : "text-muted-foreground"}`}
+                            >
                               {delta > 0 ? "▲" : delta < 0 ? "▼" : "—"} {Math.abs(delta)}
                             </span>
                           ) : (
@@ -723,8 +894,15 @@ export function WardDashboard() {
                             <div className="h-6 w-full opacity-80">
                               <ResponsiveContainer width="100%" height="100%">
                                 <LineChart data={w.history.slice(-windowDays - 1)}>
-                                  <YAxis domain={['dataMin', 'dataMax']} hide />
-                                  <Line type="monotone" dataKey="resolutionRate" stroke={delta >= 0 ? "#10b981" : "#ef4444"} strokeWidth={1.5} dot={false} isAnimationActive={false} />
+                                  <YAxis domain={["dataMin", "dataMax"]} hide />
+                                  <Line
+                                    type="monotone"
+                                    dataKey="resolutionRate"
+                                    stroke={delta >= 0 ? "#10b981" : "#ef4444"}
+                                    strokeWidth={1.5}
+                                    dot={false}
+                                    isAnimationActive={false}
+                                  />
                                 </LineChart>
                               </ResponsiveContainer>
                             </div>
@@ -732,7 +910,9 @@ export function WardDashboard() {
                             <span className="text-[10px] text-muted-foreground">—</span>
                           )}
                         </td>
-                        <td className="p-3.5 text-center font-mono text-muted-foreground">{w.slaBreaches}</td>
+                        <td className="p-3.5 text-center font-mono text-muted-foreground">
+                          {w.slaBreaches}
+                        </td>
                         <td className="p-3.5 text-right whitespace-nowrap">
                           <Badge
                             variant="outline"
@@ -753,7 +933,11 @@ export function WardDashboard() {
                       {isExpanded && canExpand && (
                         <tr className="bg-muted/10">
                           <td colSpan={10} className="p-3 sm:p-4">
-                            <WardComplaintLog wardId={numericId} wardName={w.name} refreshToken={refreshToken} />
+                            <WardComplaintLog
+                              wardId={numericId}
+                              wardName={w.name}
+                              refreshToken={refreshToken}
+                            />
                           </td>
                         </tr>
                       )}
@@ -769,7 +953,15 @@ export function WardDashboard() {
         {filteredWards.length > ITEMS_PER_PAGE && (
           <div className="flex items-center justify-between border-t border-border px-4 py-3 sm:px-6">
             <div className="hidden sm:block text-[11px] text-muted-foreground">
-              Showing <span className="font-medium text-foreground">{(currentPage - 1) * ITEMS_PER_PAGE + 1}</span> to <span className="font-medium text-foreground">{Math.min(currentPage * ITEMS_PER_PAGE, filteredWards.length)}</span> of <span className="font-medium text-foreground">{filteredWards.length}</span> wards
+              Showing{" "}
+              <span className="font-medium text-foreground">
+                {(currentPage - 1) * ITEMS_PER_PAGE + 1}
+              </span>{" "}
+              to{" "}
+              <span className="font-medium text-foreground">
+                {Math.min(currentPage * ITEMS_PER_PAGE, filteredWards.length)}
+              </span>{" "}
+              of <span className="font-medium text-foreground">{filteredWards.length}</span> wards
             </div>
             <div className="flex flex-1 justify-between sm:justify-end sm:gap-2">
               <Button

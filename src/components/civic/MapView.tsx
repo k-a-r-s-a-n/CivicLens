@@ -8,11 +8,13 @@ import {
   useMap,
   useMapEvents,
 } from "react-leaflet";
+import MarkerClusterGroup from "react-leaflet-cluster";
 import "leaflet/dist/leaflet.css";
+import "leaflet.markercluster/dist/MarkerCluster.css";
+import "leaflet.markercluster/dist/MarkerCluster.Default.css";
 import L from "leaflet";
 import { Fragment, useEffect, useMemo, useState, useCallback } from "react";
 import { Clock, MapPin, ThumbsUp } from "lucide-react";
-import { toast } from "sonner";
 import wardsJson from "@/data/gcc-wards.json";
 import { CHENNAI_CENTER, STATUS_COLOR, type Complaint } from "@/data/civic";
 import { GCC_BOUNDS, GCC_FEATURE, gccMaskFeature, isInsideGCC } from "@/lib/gccBoundary";
@@ -22,6 +24,7 @@ import { Button } from "@/components/ui/button";
 
 // Fix Leaflet default marker icons
 if (typeof window !== "undefined") {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   delete (L.Icon.Default.prototype as any)._getIconUrl;
   L.Icon.Default.mergeOptions({
     iconRetinaUrl: "https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon-2x.png",
@@ -39,9 +42,7 @@ function ClickCatcher({ onPick }: { onPick?: ((lat: number, lng: number) => void
     },
     mousemove(e) {
       if (!onPick) return;
-      map
-        .getContainer()
-        .classList.toggle("outside-gcc", !isInsideGCC(e.latlng.lat, e.latlng.lng));
+      map.getContainer().classList.toggle("outside-gcc", !isInsideGCC(e.latlng.lat, e.latlng.lng));
     },
     mouseout() {
       map.getContainer().classList.remove("outside-gcc");
@@ -73,16 +74,20 @@ function SmartWheelZoom() {
       acc += -dy / (pinch ? PINCH_PX_PER_LEVEL : WHEEL_PX_PER_LEVEL);
       point = map.mouseEventToContainerPoint(e);
       window.clearTimeout(timer);
-      timer = window.setTimeout(() => {
-        const snap = map.options.zoomSnap || 0.25;
-        const raw = map.getZoom() + acc;
-        acc = 0;
-        const target = Math.max(
-          map.getMinZoom(),
-          Math.min(map.getMaxZoom(), Math.round(raw / snap) * snap),
-        );
-        if (point && target !== map.getZoom()) map.setZoomAround(point, target, { animate: !pinch });
-      }, pinch ? 0 : 30);
+      timer = window.setTimeout(
+        () => {
+          const snap = map.options.zoomSnap || 0.25;
+          const raw = map.getZoom() + acc;
+          acc = 0;
+          const target = Math.max(
+            map.getMinZoom(),
+            Math.min(map.getMaxZoom(), Math.round(raw / snap) * snap),
+          );
+          if (point && target !== map.getZoom())
+            map.setZoomAround(point, target, { animate: !pinch });
+        },
+        pinch ? 0 : 30,
+      );
     };
 
     el.addEventListener("wheel", onWheel, { passive: false });
@@ -111,7 +116,9 @@ function WardFlyToHandler({ selectedWardId }: { selectedWardId?: number | null |
   useEffect(() => {
     if (!selectedWardId) return;
 
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const feature = (wardsJson as any).features?.find(
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       (f: any) => f.properties?.ward === selectedWardId,
     );
 
@@ -125,7 +132,6 @@ function WardFlyToHandler({ selectedWardId }: { selectedWardId?: number | null |
   return null;
 }
 
-/** Dynamic Zoom Tracker for scaling pin radii */
 function ZoomTracker({ onZoomChange }: { onZoomChange: (z: number) => void }) {
   const map = useMapEvents({
     zoomend() {
@@ -157,9 +163,7 @@ function getUnattendedDays(date: string) {
   return Math.max(0, Math.floor((Date.now() - openedAt.getTime()) / 86_400_000));
 }
 
-/** Computes pin radius scaled proportionally to zoom level */
 function calculateScaledRadius(baseRadius: number, zoom: number): number {
-  // Reference zoom: 13. Scale factor ranges from 0.55 (at zoom 11) up to 1.75 (at zoom 18)
   const scaleFactor = Math.max(0.55, Math.min(1.75, Math.pow(1.18, zoom - 13)));
   return Math.round(baseRadius * scaleFactor);
 }
@@ -184,12 +188,14 @@ export default function MapView({
   selectedWardId,
 }: Props) {
   const [currentZoom, setCurrentZoom] = useState(12);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const wardGeoJsonData = useMemo(() => wardsJson as any, []);
 
   const handleZoomChange = useCallback((z: number) => {
     setCurrentZoom(z);
   }, []);
 
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const wardStyle = (feature: any) => {
     const isSelected = selectedWardId && feature?.properties?.ward === selectedWardId;
     return {
@@ -200,6 +206,7 @@ export default function MapView({
     };
   };
 
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const onEachWard = (feature: any, layer: L.Layer) => {
     const wardNum = feature.properties?.ward;
     const wardName = feature.properties?.name || `Ward ${wardNum}`;
@@ -276,6 +283,7 @@ export default function MapView({
       <WardFlyToHandler selectedWardId={selectedWardId ?? null} />
       <ClickCatcher onPick={onPickLocation} />
 
+      {/* Draft pick pin — never clustered */}
       {draft ? (
         <CircleMarker
           center={[draft.lat, draft.lng]}
@@ -284,274 +292,265 @@ export default function MapView({
         />
       ) : null}
 
-      {complaints.map((c) => {
-        const isSlaBreached =
-          c.status === "Unresolved" &&
-          Date.now() - new Date(`${c.date}T00:00:00`).getTime() > 7 * 86_400_000;
+      {/* Complaint pins — clustered until high zoom */}
+      <MarkerClusterGroup
+        chunkedLoading
+        showCoverageOnHover={false}
+        maxClusterRadius={60}
+        spiderfyOnMaxZoom
+        disableClusteringAtZoom={16}
+        spiderfyDistanceMultiplier={1.2}
+      >
+        {complaints.map((c) => {
+          const isSlaBreached =
+            c.status === "Unresolved" &&
+            Date.now() - new Date(`${c.date}T00:00:00`).getTime() > 7 * 86_400_000;
 
-        const markerColor = isSlaBreached
-          ? "#4b038e7b"
-          : c.status === "In Progress"
-            ? "#eab308"
-            : c.status === "Resolved"
-              ? "#16a34a"
-              : "#dc2626";
-
-        const tooltipText =
-          c.status === "Resolved"
-            ? "Resolved"
+          const markerColor = isSlaBreached
+            ? "#991b1b"
             : c.status === "In Progress"
-              ? "In Progress"
-              : `Unattended for ${getUnattendedDays(c.date)} days`;
+              ? "#eab308"
+              : c.status === "Resolved"
+                ? "#16a34a"
+                : "#dc2626";
 
-        const fixPhoto = c.fixImageUrl;
+          const tooltipText =
+            c.status === "Resolved"
+              ? "Resolved"
+              : c.status === "In Progress"
+                ? "In Progress"
+                : `Unattended for ${getUnattendedDays(c.date)} days`;
 
-        // Dynamic pin scaling
-        const baseRadius = isSlaBreached ? 10 : 8;
-        const pinRadius = calculateScaledRadius(baseRadius, currentZoom);
-        const breachRingRadius = calculateScaledRadius(16, currentZoom);
+          const fixPhoto = c.fixImageUrl;
 
-        return (
-          <Fragment key={c.id}>
-            {isSlaBreached ? (
+          const baseRadius = isSlaBreached ? 10 : 8;
+          const pinRadius = calculateScaledRadius(baseRadius, currentZoom);
+          const breachRingRadius = calculateScaledRadius(16, currentZoom);
+
+          return (
+            <Fragment key={c.id}>
+              {isSlaBreached ? (
+                <CircleMarker
+                  center={[c.lat, c.lng]}
+                  radius={breachRingRadius}
+                  pathOptions={{
+                    className: "sla-breach-ring",
+                    color: "#991b1b",
+                    weight: 2,
+                    fillOpacity: 0,
+                  }}
+                />
+              ) : null}
+
               <CircleMarker
                 center={[c.lat, c.lng]}
-                radius={breachRingRadius}
+                radius={pinRadius}
                 pathOptions={{
-                  className: "sla-breach-ring",
-                  color: "#991b1b",
+                  color: "#ffffff",
                   weight: 2,
-                  fillOpacity: 0,
+                  fillColor: markerColor,
+                  fillOpacity: 0.9,
                 }}
-              />
-            ) : null}
-
-            <CircleMarker
-              center={[c.lat, c.lng]}
-              radius={pinRadius}
-              pathOptions={{
-                color: "#ffffff",
-                weight: 2,
-                fillColor: markerColor,
-                fillOpacity: 0.9,
-              }}
-            >
-              <Tooltip direction="top" offset={[0, -8]} opacity={1} className="civic-tooltip">
-                {c.category} • {tooltipText}
-              </Tooltip>
-              <Popup minWidth={350} maxWidth={350}>
-                <div className="w-[350px] divide-y divide-border bg-white text-foreground">
-                  <div className="space-y-2 p-4">
-                    <p className="font-mono text-[10px] tracking-wider text-muted-foreground uppercase">
-                      Public Audit Log
-                    </p>
-                    <p className="font-mono text-[10px] text-muted-foreground">
-                      Ticket ID: #{c.id}
-                    </p>
-                    <div className="flex items-start justify-between gap-3">
-                      <h3 className="min-w-0 font-display text-base leading-snug font-bold">
-                        {c.title}
-                      </h3>
-                      <Badge
-                        variant="outline"
-                        className="shrink-0 text-[10px]"
-                        style={{
-                          borderColor: STATUS_COLOR[c.status],
-                          color: STATUS_COLOR[c.status],
-                        }}
-                      >
-                        {c.status}
-                      </Badge>
-                    </div>
-                    <div className="flex flex-wrap items-center gap-1.5">
-                      <Badge variant="outline" className="text-[10px]">
-                        {c.category}
-                      </Badge>
-                      {c.subType ? (
-                        <Badge variant="secondary" className="text-[10px]">
-                          {c.subType}
-                        </Badge>
-                      ) : null}
-                      {c.locationTrust ? (
+              >
+                <Tooltip direction="top" offset={[0, -8]} opacity={1} className="civic-tooltip">
+                  {c.category} • {tooltipText}
+                </Tooltip>
+                <Popup minWidth={350} maxWidth={350}>
+                  <div className="w-[350px] divide-y divide-border bg-white text-foreground">
+                    <div className="space-y-2 p-4">
+                      <p className="font-mono text-[10px] tracking-wider text-muted-foreground uppercase">
+                        Public Audit Log
+                      </p>
+                      <p className="font-mono text-[10px] text-muted-foreground">
+                        Ticket ID: #{c.id}
+                      </p>
+                      <div className="flex items-start justify-between gap-3">
+                        <h3 className="min-w-0 font-display text-base leading-snug font-bold">
+                          {c.title}
+                        </h3>
                         <Badge
-                          variant="secondary"
-                          className={
-                            c.locationTrust === "verified_gps"
-                              ? "bg-emerald-100 text-emerald-800 text-[10px]"
-                              : "bg-amber-100 text-amber-800 text-[10px]"
-                          }
-                        >
-                          {c.locationTrust === "verified_gps" ? "GPS Verified" : "Self Reported"}
-                        </Badge>
-                      ) : null}
-                    </div>
-
-                    <div className="mt-3 space-y-2 rounded-lg border border-border bg-muted/30 p-2.5">
-                      <p className="text-[10px] font-semibold tracking-wider text-muted-foreground uppercase">
-                        Photo Evidence Audit
-                      </p>
-                      <div className="grid grid-cols-2 gap-2">
-                        <div>
-                          <p className="text-[9px] font-bold tracking-wider text-muted-foreground uppercase">
-                            Before (Issue)
-                          </p>
-                          {c.imageUrl ? (
-                            <img src={c.imageUrl} alt={`Before photo evidence for ${c.title}`}
-                              className="mt-1 h-20 w-full rounded-md border border-border object-cover shadow-sm"
-                            />
-                          ) : (
-                            <div className="mt-1 flex h-20 items-center justify-center rounded-md border border-dashed border-neutral-300 bg-neutral-100 p-2 text-center text-[10px] text-neutral-400">
-                              No photo
-                            </div>
-                          )}
-                        </div>
-
-                        <div>
-                          <p className="text-[9px] font-bold tracking-wider text-muted-foreground uppercase">
-                            After (Fix)
-                          </p>
-                          {fixPhoto ? (
-                            <img src={fixPhoto} alt={`After resolution proof for ${c.title}`}
-                              className="mt-1 h-20 w-full rounded-md border border-emerald-500/50 object-cover shadow-sm"
-                            />
-                          ) : (
-                            <div className="mt-1 flex h-20 items-center justify-center rounded-md border border-dashed border-neutral-300 bg-neutral-100 p-2 text-center text-[10px] text-neutral-400">
-                              Not fixed yet
-                            </div>
-                          )}
-                        </div>
-                      </div>
-                    </div>
-
-                    {c.status === "Resolved" ? (
-                      <div className="mt-2 space-y-3 rounded-lg border border-status-green/30 bg-status-green/5 p-3">
-                        <div className="flex items-center justify-between gap-2">
-                          <p className="text-[10px] font-semibold tracking-wider text-status-green uppercase">
-                            Community Audit Status
-                          </p>
-                          <Badge className="bg-status-green text-white hover:bg-status-green">
-                            Verified Resolved
-                          </Badge>
-                        </div>
-                        <div className="space-y-1 font-mono text-[9px] text-muted-foreground">
-                          <p>✓ Location Match: {c.lat.toFixed(4)}, {c.lng.toFixed(4)}</p>
-                          <p>✓ Fix Proof Audit Complete</p>
-                        </div>
-                        <Button
-                          type="button"
-                          size="sm"
                           variant="outline"
-                          className="h-8 w-full border-status-red/40 text-[10px] text-status-red hover:bg-status-red/5 hover:text-status-red"
-                          onClick={() =>
-                            toast("Re-opening request logged", {
-                              description:
-                                "2 more neighbor confirmations needed to flag resolution fraud.",
-                            })
+                          className="shrink-0 text-[10px]"
+                          style={{
+                            borderColor: STATUS_COLOR[c.status],
+                            color: STATUS_COLOR[c.status],
+                          }}
+                        >
+                          {c.status}
+                        </Badge>
+                      </div>
+                      <div className="flex flex-wrap items-center gap-1.5">
+                        <Badge variant="outline" className="text-[10px]">
+                          {c.category}
+                        </Badge>
+                        {c.subType ? (
+                          <Badge variant="secondary" className="text-[10px]">
+                            {c.subType}
+                          </Badge>
+                        ) : null}
+                        {c.locationTrust ? (
+                          <Badge
+                            variant="secondary"
+                            className={
+                              c.locationTrust === "verified_gps"
+                                ? "bg-emerald-100 text-[10px] text-emerald-800"
+                                : "bg-amber-100 text-[10px] text-amber-800"
+                            }
+                          >
+                            {c.locationTrust === "verified_gps" ? "GPS Verified" : "Self Reported"}
+                          </Badge>
+                        ) : null}
+                      </div>
+
+                      <div className="mt-3 space-y-2 rounded-lg border border-border bg-muted/30 p-2.5">
+                        <p className="text-[10px] font-semibold tracking-wider text-muted-foreground uppercase">
+                          Photo Evidence Audit
+                        </p>
+                        <div className="grid grid-cols-2 gap-2">
+                          <div>
+                            <p className="text-[9px] font-bold tracking-wider text-muted-foreground uppercase">
+                              Before (Issue)
+                            </p>
+                            {c.imageUrl ? (
+                              <img
+                                src={c.imageUrl}
+                                alt={`Before photo evidence for ${c.title}`}
+                                className="mt-1 h-20 w-full rounded-md border border-border object-cover shadow-sm"
+                              />
+                            ) : (
+                              <div className="mt-1 flex h-20 items-center justify-center rounded-md border border-dashed border-neutral-300 bg-neutral-100 p-2 text-center text-[10px] text-neutral-400">
+                                No photo
+                              </div>
+                            )}
+                          </div>
+
+                          <div>
+                            <p className="text-[9px] font-bold tracking-wider text-muted-foreground uppercase">
+                              After (Fix)
+                            </p>
+                            {fixPhoto ? (
+                              <img
+                                src={fixPhoto}
+                                alt={`After resolution proof for ${c.title}`}
+                                className="mt-1 h-20 w-full rounded-md border border-emerald-500/50 object-cover shadow-sm"
+                              />
+                            ) : (
+                              <div className="mt-1 flex h-20 items-center justify-center rounded-md border border-dashed border-neutral-300 bg-neutral-100 p-2 text-center text-[10px] text-neutral-400">
+                                Not fixed yet
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+
+                      {c.status === "Resolved" ? (
+                        <div className="mt-2 rounded-lg border border-status-green/30 bg-status-green/5 p-3 text-[11px] text-muted-foreground">
+                          Marked resolved. Before/after photos are shown when a fix photo exists.
+                          Official resolution is not handled in this public app yet.
+                        </div>
+                      ) : (
+                        <div className="mt-2 border border-border bg-muted/40 px-3 py-2 text-[10px] font-medium text-muted-foreground">
+                          Awaiting official fix. This is a public record, not a GCC ticket.
+                        </div>
+                      )}
+                    </div>
+
+                    <div className="space-y-2 p-4">
+                      <p className="text-[10px] font-semibold tracking-wider text-primary uppercase">
+                        SLA Status
+                      </p>
+                      <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1.5 text-[11px]">
+                        <dt className="text-muted-foreground">Opened</dt>
+                        <dd className="font-medium">
+                          {formatDate(new Date(`${c.date}T00:00:00`))}
+                        </dd>
+                        <dt className="text-muted-foreground">Time unattended</dt>
+                        <dd className="font-medium">{getUnattendedDuration(c.date)}</dd>
+                        <dt className="text-muted-foreground">SLA Deadline</dt>
+                        <dd
+                          className={
+                            Date.now() > new Date(`${c.date}T00:00:00`).getTime() + 7 * 86_400_000
+                              ? "font-semibold text-status-red"
+                              : "font-medium"
                           }
                         >
-                          Challenge Closure (Report Fake Fix)
-                        </Button>
-                      </div>
-                    ) : (
-                      <div className="mt-2 border border-border bg-muted/40 px-3 py-2 text-[10px] font-medium text-muted-foreground">
-                        Awaiting Official Fix &amp; Community Audit
-                      </div>
-                    )}
-                  </div>
+                          {formatDate(
+                            new Date(new Date(`${c.date}T00:00:00`).getTime() + 7 * 86_400_000),
+                          )}
+                        </dd>
+                      </dl>
+                    </div>
 
-                  <div className="space-y-2 p-4">
-                    <p className="text-[10px] font-semibold tracking-wider text-primary uppercase">
-                      SLA Status
-                    </p>
-                    <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1.5 text-[11px]">
-                      <dt className="text-muted-foreground">Opened</dt>
-                      <dd className="font-medium">{formatDate(new Date(`${c.date}T00:00:00`))}</dd>
-                      <dt className="text-muted-foreground">Time unattended</dt>
-                      <dd className="font-medium">{getUnattendedDuration(c.date)}</dd>
-                      <dt className="text-muted-foreground">SLA Deadline</dt>
-                      <dd
-                        className={
-                          Date.now() > new Date(`${c.date}T00:00:00`).getTime() + 7 * 86_400_000
-                            ? "font-semibold text-status-red"
-                            : "font-medium"
-                        }
-                      >
-                        {formatDate(
-                          new Date(new Date(`${c.date}T00:00:00`).getTime() + 7 * 86_400_000),
-                        )}
-                      </dd>
-                    </dl>
-                  </div>
-
-                  <div className="space-y-2 p-4">
-                    <p className="text-[10px] font-semibold tracking-wider text-primary uppercase">
-                      Accountability
-                    </p>
-                    <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1.5 text-[11px]">
-                      <dt className="text-muted-foreground">Assigned Ward</dt>
-                      <dd className="font-medium">{c.area}</dd>
-                      <dt className="text-muted-foreground">Responsible Official</dt>
-                      <dd className="font-medium">
-                        {(() => {
-                          const z = zoneForArea(c.area);
-                          return z
-                            ? `Zonal Officer, Zone ${z.zone} (${z.zoneName})`
-                            : "Zonal Officer — zone not on record";
-                        })()}
-                      </dd>
-                    </dl>
-                  </div>
-
-                  <div className="space-y-3 p-4">
-                    <div>
+                    <div className="space-y-2 p-4">
                       <p className="text-[10px] font-semibold tracking-wider text-primary uppercase">
-                        Description
+                        Accountability
                       </p>
-                      <p className="mt-1 text-xs leading-relaxed text-foreground">
-                        {c.description}
-                      </p>
+                      <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1.5 text-[11px]">
+                        <dt className="text-muted-foreground">Assigned Ward</dt>
+                        <dd className="font-medium">{c.area}</dd>
+                        <dt className="text-muted-foreground">Responsible Official</dt>
+                        <dd className="font-medium">
+                          {(() => {
+                            const z = zoneForArea(c.area);
+                            return z
+                              ? `Zonal Officer, Zone ${z.zone} (${z.zoneName})`
+                              : "Zonal Officer — zone not on record";
+                          })()}
+                        </dd>
+                      </dl>
                     </div>
-                    <div className="flex items-start gap-2 border-t border-border pt-3">
-                      <MapPin className="mt-0.5 size-3.5 shrink-0 text-muted-foreground" />
-                      <div className="min-w-0">
-                        <p className="text-[10px] font-semibold tracking-wider text-muted-foreground uppercase">
-                          Specific Location
+
+                    <div className="space-y-3 p-4">
+                      <div>
+                        <p className="text-[10px] font-semibold tracking-wider text-primary uppercase">
+                          Description
                         </p>
-                        <p className="mt-1 text-xs text-foreground">{c.landmark || c.area}</p>
+                        <p className="mt-1 text-xs leading-relaxed text-foreground">
+                          {c.description}
+                        </p>
+                      </div>
+                      <div className="flex items-start gap-2 border-t border-border pt-3">
+                        <MapPin className="mt-0.5 size-3.5 shrink-0 text-muted-foreground" />
+                        <div className="min-w-0">
+                          <p className="text-[10px] font-semibold tracking-wider text-muted-foreground uppercase">
+                            Specific Location
+                          </p>
+                          <p className="mt-1 text-xs text-foreground">{c.landmark || c.area}</p>
+                        </div>
                       </div>
                     </div>
-                  </div>
 
-                  <div className="space-y-2 p-4">
-                    <div className="flex items-center justify-between gap-3">
-                      <p className="flex items-center gap-1.5 text-[10px] font-semibold tracking-wider text-primary uppercase">
-                        <Clock className="size-3.5" />
-                        Verification Count
-                      </p>
-                      <span className="font-mono text-[11px] text-muted-foreground">
-                        {c.upvotes}
-                      </span>
+                    <div className="space-y-2 p-4">
+                      <div className="flex items-center justify-between gap-3">
+                        <p className="flex items-center gap-1.5 text-[10px] font-semibold tracking-wider text-primary uppercase">
+                          <Clock className="size-3.5" />
+                          Verification Count
+                        </p>
+                        <span className="font-mono text-[11px] text-muted-foreground">
+                          {c.upvotes}
+                        </span>
+                      </div>
+                      <Button
+                        size="sm"
+                        variant="secondary"
+                        className="h-8 w-full gap-1.5 text-xs"
+                        onClick={() => onUpvote(c.id)}
+                      >
+                        <ThumbsUp className="size-3.5" />
+                        {upvotedIds.has(c.id) ? (
+                          <span className="text-green-700">Verified</span>
+                        ) : (
+                          "Verify Issue (Public Audit)"
+                        )}
+                      </Button>
                     </div>
-                    <Button
-                      size="sm"
-                      variant="secondary"
-                      className="h-8 w-full gap-1.5 text-xs"
-                      onClick={() => onUpvote(c.id)}
-                    >
-                      <ThumbsUp className="size-3.5" />
-                      {upvotedIds.has(c.id) ? (
-                        <span className="text-green-700">Verified</span>
-                      ) : (
-                        "Verify Issue (Public Audit)"
-                      )}
-                    </Button>
                   </div>
-                </div>
-              </Popup>
-            </CircleMarker>
-          </Fragment>
-        );
-      })}
+                </Popup>
+              </CircleMarker>
+            </Fragment>
+          );
+        })}
+      </MarkerClusterGroup>
     </MapContainer>
   );
 }

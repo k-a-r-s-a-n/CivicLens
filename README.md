@@ -1,6 +1,6 @@
 # 🗺️ CivicLens — Radical Transparency for Indian Cities
 
-> *"The government built a complaint box. We built a mirror."*
+> _"The government built a complaint box. We built a mirror."_
 
 [![React 19](https://img.shields.io/badge/React-19-blue.svg)](https://react.dev/)
 [![TanStack Start](https://img.shields.io/badge/TanStack-Start-ff4154.svg)](https://tanstack.com/start)
@@ -18,15 +18,15 @@ Built for a 24-hour hackathon by students from **VIT Chennai**, engineered speci
 
 ## 📸 Screenshots & Highlights
 
-| Live Public Complaint Map | Ward Performance Scorecard |
-|:---:|:---:|
+|              Live Public Complaint Map               |             Ward Performance Scorecard              |
+| :--------------------------------------------------: | :-------------------------------------------------: |
 | Color-coded status pins, heatmaps & realtime updates | Live ranking sorted by lowest resolution rate first |
 
 ---
 
 ## ⚡ The Problem (Chennai Context)
 
-Existing municipal portals like *Namma Chennai (GCC)*, *CMWSSB*, and *1913 Helplines* suffer from systemic structural failures:
+Existing municipal portals like _Namma Chennai (GCC)_, _CMWSSB_, and _1913 Helplines_ suffer from systemic structural failures:
 
 1. **Zero Public Visibility**: Complaints are strictly private tickets. Citizens cannot see neighboring issues, shielding officials from systematic accountability.
 2. **Fake Closures & Resolution Fraud**: Field workers upload unrelated/old photos to close tickets artificially before SLAs expire.
@@ -44,10 +44,11 @@ text
                        │
                        ▼
           LIVE PUBLIC TRANSPARENCY MAP
-  (Zero-PII • Geotagged • Real-Time Database)
-                       │
-     ┌─────────────────┴─────────────────┐
-     ▼                                   ▼
+
+(Zero-PII • Geotagged • Real-Time Database)
+│
+┌─────────────────┴─────────────────┐
+▼ ▼
 COMMUNITY UPVOTES WARD LEADERBOARD
 (Device Fingerprinted) (Worst Wards Ranked #1)
 │ │
@@ -58,40 +59,45 @@ BEFORE / AFTER PROOF PROTOCOL
 
 text
 
-
 ---
 
 ## ✨ Key Features
 
 ### 📍 1. Live Interactive Public Map
-* **OpenStreetMap & Leaflet Integration**: Completely free, open-source tile layer requiring zero proprietary API keys.
-* **Color-Coded Status System**:
-  * 🔴 **Red**: Unresolved
-  * 🟡 **Yellow**: In Progress
-  * 🟢 **Green**: Verified Resolved
-  * 🔴 **Pulsing Red**: SLA Breached (Unattended > 7 Days)
-* **Realtime Synchronization**: Powered by Supabase Realtime — filings on one device instantly drop pins on all open maps without page refresh.
+
+- **OpenStreetMap & Leaflet Integration**: Completely free, open-source tile layer requiring zero proprietary API keys.
+- **Color-Coded Status System**:
+  - 🔴 **Red**: Unresolved
+  - 🟡 **Yellow**: In Progress
+  - 🟢 **Green**: Verified Resolved
+  - 🔴 **Pulsing Red**: SLA Breached (Unattended > 7 Days)
+- **Realtime Synchronization**: Powered by Supabase Realtime — filings on one device instantly drop pins on all open maps without page refresh.
 
 ### 🛡️ 2. Zero-PII & Privacy-First Architecture
-* **No Phone Numbers Stored**: Field staff see only Ticket IDs, categories, descriptions, and GPS locations.
-* **Zero OTP Walls**: Instant filing from any browser — elimination of download barriers increases accessibility by 25× compared to native app stores.
-* **Local Ticket Registry**: Browser `localStorage` maintains a private "My Filed Issues" drawer for anonymous tracking.
+
+- **No Phone Numbers Stored**: Field staff see only Ticket IDs, categories, descriptions, and GPS locations.
+- **Zero OTP Walls**: Instant filing from any browser — elimination of download barriers increases accessibility by 25× compared to native app stores.
+- **Local Ticket Registry**: Browser `localStorage` maintains a private "My Filed Issues" drawer for anonymous tracking.
 
 ### 🤖 3. AI Vision & EXIF Proof Intake
-* **Gemini Vision AI Integration**: Automatically analyzes uploaded photos to filter out invalid uploads (selfies, memes, indoor spaces) and auto-populates category and title fields.
-* **EXIF Geotag Verification**: Reads camera GPS & timestamp metadata. Implements a soft-tolerance algorithm (warns on missing/off-target metadata without blocking legitimate reports).
+
+- **Gemini Vision AI Integration**: Automatically analyzes uploaded photos to filter out invalid uploads (selfies, memes, indoor spaces) and auto-populates category and title fields.
+- **EXIF Geotag Verification**: Reads camera GPS & timestamp metadata. Implements a soft-tolerance algorithm (warns on missing/off-target metadata without blocking legitimate reports).
 
 ### 🔍 4. Anti-Fraud "Before & After" Proof
-* **Dual Evidence Gallery**: Pin popups display both the citizen's **Before** photo and the official's **After (Fix)** photo side-by-side.
-* **48-Hour Community Audit**: Resolved tickets remain in "Pending Audit" state for 48 hours. Local residents verify if the fix is real; 2 negative flags reopen the ticket with a public **Resolution Fraud Banner**.
+
+- **Dual Evidence Gallery**: Pin popups display both the citizen's **Before** photo and the official's **After (Fix)** photo side-by-side.
+- **48-Hour Community Audit**: Resolved tickets remain in "Pending Audit" state for 48 hours. Local residents verify if the fix is real; 2 negative flags reopen the ticket with a public **Resolution Fraud Banner**.
 
 ### 📊 5. Ward Performance Leaderboard
-* **Political Accountability Ranking**: Ranks 15+ Chennai wards by resolution rate, highlighting **failing wards first**.
-* **One-Click Audit PDF**: Generates formal public audit statements formatted for council meetings, press releases, and social media pressure.
+
+- **Political Accountability Ranking**: Ranks 15+ Chennai wards by resolution rate, highlighting **failing wards first**.
+- **One-Click Audit PDF**: Generates formal public audit statements formatted for council meetings, press releases, and social media pressure.
 
 ---
 
 ## 🛠️ Tech Stack
+
 Framework: TanStack Start (React 19 + TypeScript)
 Build Tool: Vite 8
 Styling: Tailwind CSS v4
@@ -114,7 +120,7 @@ text
 
 ## 🗄️ Database Schema Overview
 
-```sql
+````sql
 -- 1. Complaints Table
 CREATE TABLE complaints (
   id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
@@ -202,3 +208,4 @@ Arjith (25BEC1209) — UI/UX Design & Systems
 Distributed under the MIT License. See LICENSE for more information.
 
 <p center="align"> <b>CivicLens</b> · Built for Radical Transparency in Indian Cities 🇮🇳 </p> ```
+````

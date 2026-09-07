@@ -1,96 +1,108 @@
-// supabase/functions/classify-image/index.ts
-// Purpose: Proxy Gemini API calls so VITE_GEMINI_API_KEY never reaches the browser.
-//          Enforces rate limits per IP + fingerprint.
-
 import { serve } from "https://deno.land/std@0.177.0/http/server.ts";
 
 const CORS_HEADERS = {
-    "Access-Control-Allow-Origin": "*",
-    "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-fingerprint",
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Headers":
+    "authorization, x-client-info, apikey, content-type, x-fingerprint",
+  "Access-Control-Allow-Methods": "POST, OPTIONS",
 };
 
-// Rate limit store (in-memory; resets on deploy, fine for v1)
-const rateWindowMs = 60_000; // 1 minute window
-const maxRequestsPerWindow = 5; // per fingerprint+IP combo
+const rateWindowMs = 60_000;
+const maxRequestsPerWindow = 5;
 const recentRequests = new Map<string, number[]>();
+const MAX_BODY_BYTES = 6_000_000;
+const MAX_IMAGE_CHARS = 5_500_000;
 
 serve(async (req) => {
-    // Preflight
-    if (req.method === "OPTIONS") {
-        return new Response(null, { status: 204, headers: CORS_HEADERS });
+  if (req.method === "OPTIONS") {
+    return new Response(null, { status: 204, headers: CORS_HEADERS });
+  }
+  if (req.method !== "POST") {
+    return json({ error: "Method not allowed" }, 405);
+  }
+
+  const contentLength = Number(req.headers.get("content-length") ?? "0");
+  if (Number.isFinite(contentLength) && contentLength > MAX_BODY_BYTES) {
+    return json({ error: "Request too large" }, 413);
+  }
+
+  try {
+    const body = (await req.json()) as {
+      imageData?: unknown;
+      mimeType?: unknown;
+      promptText?: unknown;
+      fingerprint?: unknown;
+    };
+
+    const imageData = typeof body.imageData === "string" ? body.imageData : "";
+    const promptText = typeof body.promptText === "string" ? body.promptText : "";
+    const mimeType = typeof body.mimeType === "string" ? body.mimeType : "image/jpeg";
+
+    if (!imageData || !promptText || imageData.length > MAX_IMAGE_CHARS) {
+      return json({ error: "Invalid request" }, 400);
+    }
+    if (!["image/jpeg", "image/png", "image/webp"].includes(mimeType)) {
+      return json({ error: "Unsupported image type" }, 400);
     }
 
-    try {
-        const { imageData, mimeType, categories, promptText, fingerprint } = await req.json();
+    const headerFp = req.headers.get("x-fingerprint")?.trim() ?? "";
+    const bodyFp = typeof body.fingerprint === "string" ? body.fingerprint.trim() : "";
+    const fingerprint = (headerFp || bodyFp || "anon").slice(0, 128);
 
-        // --- Rate Limit Check ---
-        const ip = req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || "unknown";
-        const rateKey = `${fingerprint}:${ip}`;
-        const now = Date.now();
+    const ip = req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || "unknown";
+    const rateKey = `${fingerprint}:${ip}`;
+    const now = Date.now();
+    const timestamps = (recentRequests.get(rateKey) ?? []).filter((t) => t > now - rateWindowMs);
+    if (timestamps.length >= maxRequestsPerWindow) {
+      return json({ error: "Rate limit exceeded. Please wait before retrying." }, 429);
+    }
+    timestamps.push(now);
+    recentRequests.set(rateKey, timestamps);
 
-        const windowStart = now - rateWindowMs;
-        let timestamps = recentRequests.get(rateKey) || [];
-        timestamps = timestamps.filter(t => t > windowStart);
+    const apiKey = Deno.env.get("GEMINI_API_KEY");
+    if (!apiKey) {
+      console.error("Gemini key missing");
+      return json({ error: "Classification unavailable" }, 503);
+    }
 
-        if (timestamps.length >= maxRequestsPerWindow) {
-            return new Response(
-                JSON.stringify({ error: "Rate limit exceeded. Please wait before retrying." }),
-                { status: 429, headers: { ...CORS_HEADERS, "Content-Type": "application/json" } }
-            );
-        }
-
-        timestamps.push(now);
-        recentRequests.set(rateKey, timestamps);
-
-        // --- Gemini Call ---
-        const apiKey = Deno.env.get("GEMINI_API_KEY");
-        if (!apiKey) {
-            throw new Error("Server misconfiguration: Gemini key missing");
-        }
-
-        const geminiResponse = await fetch(
-            `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`,
+    const geminiResponse = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          contents: [
             {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({
-                    contents: [
-                        {
-                            parts: [
-                                { text: promptText },
-                                { inline_data: { mime_type: mimeType || "image/jpeg", data: imageData } },
-                            ],
-                        },
-                    ],
-                    generationConfig: {
-                        response_mime_type: "application/json",
-                    },
-                }),
-            }
-        );
+              parts: [
+                { text: promptText },
+                { inline_data: { mime_type: mimeType, data: imageData } },
+              ],
+            },
+          ],
+          generationConfig: { response_mime_type: "application/json" },
+        }),
+      },
+    );
 
-        if (!geminiResponse.ok) {
-            const errBody = await geminiResponse.text();
-            console.error("Gemini API error:", geminiResponse.status, errBody);
-
-            if (geminiResponse.status === 429) {
-                return new Response(JSON.stringify({ error: "Gemini API overloaded. Retry in 60s." }),
-                    { status: 503, headers: { ...CORS_HEADERS, "Content-Type": "application/json" } });
-            }
-            throw new Error(`Gemini ${geminiResponse.status}: ${errBody}`);
-        }
-
-        const data = await geminiResponse.json();
-
-        return new Response(
-            JSON.stringify({ result: data.candidates?.[0]?.content?.parts?.[0]?.text }),
-            { status: 200, headers: { ...CORS_HEADERS, "Content-Type": "application/json" } }
-        );
-
-    } catch (err) {
-        return new Response(
-            JSON.stringify({ error: err.message || "Internal error" }),
-            { status: 500, headers: { ...CORS_HEADERS, "Content-Type": "application/json" } }
-        );
+    if (!geminiResponse.ok) {
+      console.error("Gemini API error:", geminiResponse.status);
+      if (geminiResponse.status === 429) {
+        return json({ error: "Classifier busy. Retry in 60s." }, 503);
+      }
+      return json({ error: "Classification failed" }, 502);
     }
+
+    const data = await geminiResponse.json();
+    return json({ result: data.candidates?.[0]?.content?.parts?.[0]?.text }, 200);
+  } catch (err) {
+    console.error("classify-image:", err instanceof Error ? err.message : "error");
+    return json({ error: "Internal error" }, 500);
+  }
 });
+
+function json(payload: unknown, status: number) {
+  return new Response(JSON.stringify(payload), {
+    status,
+    headers: { ...CORS_HEADERS, "Content-Type": "application/json" },
+  });
+}
