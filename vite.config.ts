@@ -7,7 +7,7 @@ import { VitePWA } from "vite-plugin-pwa";
 export default defineConfig({
   plugins: [
     tailwindcss(),
-    ...tanstackStart(),
+    ...tanstackStart({ target: "netlify" }),
     react(),
     VitePWA({
       registerType: "autoUpdate",
