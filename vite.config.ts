@@ -3,11 +3,13 @@ import { tanstackStart } from "@tanstack/react-start/plugin/vite";
 import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
 import { VitePWA } from "vite-plugin-pwa";
+import netlify from "@netlify/vite-plugin";
 
 export default defineConfig({
   plugins: [
     tailwindcss(),
-    ...tanstackStart({ target: "netlify" }),
+    ...tanstackStart(),
+    netlify(),
     react(),
     VitePWA({
       registerType: "autoUpdate",
@@ -29,7 +31,6 @@ export default defineConfig({
       workbox: {
         globPatterns: ["**/*.{js,css,html,ico,png,svg,woff2}"],
         navigateFallback: null,
-        // Don't cache map tiles / API
         runtimeCaching: [],
       },
       devOptions: {
