@@ -23,6 +23,7 @@ import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
 import WardSearch from "@/components/civic/WardSearch";
 
+
 import { Button } from "@/components/ui/button";
 
 // Fix Leaflet default marker icons
@@ -195,12 +196,21 @@ export default function MapView({
   const [currentZoom, setCurrentZoom] = useState(12);
   const [showWardOutlines, setShowWardOutlines] = useState(true);
   const [searchSelectedWardId, setSearchSelectedWardId] = useState<number | null>(null);
+  const [isInteracting, setIsInteracting] = useState(false);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const wardGeoJsonData = useMemo(() => wardsJson as any, []);
 
   const handleZoomChange = useCallback((z: number) => {
     setCurrentZoom(z);
   }, []);
+
+  // map interaction events for translucency
+  const mapEvents = useMapEvents({
+    dragstart: () => setIsInteracting(true),
+    zoomstart: () => setIsInteracting(true),
+    dragend: () => setIsInteracting(false),
+    zoomend: () => setIsInteracting(false),
+  });
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const wardStyle = (feature: any) => {
@@ -248,21 +258,9 @@ export default function MapView({
   };
 
   return (
-    <MapContainer
-      center={CHENNAI_CENTER}
-      zoom={12}
-      minZoom={11}
-      maxBounds={GCC_BOUNDS}
-      maxBoundsViscosity={0.85}
-      scrollWheelZoom={false}
-      zoomSnap={0.25}
-      zoomDelta={1}
-      inertiaDeceleration={3000}
-      easeLinearity={0.2}
-      className="h-full w-full"
-      style={{ height: "100%", width: "100%" }}
-    >
-      <div className="absolute top-2 right-2 z-10 flex flex-col gap-2 bg-white/80 p-2 rounded shadow-md">
+    <div className="relative h-full w-full">
+        {/* UI Controls */}
+        <div className={`absolute top-4 right-4 z-[1000] flex flex-col gap-2 bg-white/80 p-2 rounded shadow-md transition-opacity duration-200 ${isInteracting ? "opacity-40" : "opacity-100"}`}>
           <label className="flex items-center space-x-2">
             <Switch
               checked={showWardOutlines}
@@ -273,6 +271,21 @@ export default function MapView({
           </label>
           <WardSearch onSelectWard={(wardId: number) => setSearchSelectedWardId(wardId)} />
         </div>
+      <MapContainer
+        center={CHENNAI_CENTER}
+        zoom={12}
+        minZoom={11}
+        maxBounds={GCC_BOUNDS}
+        maxBoundsViscosity={0.85}
+        scrollWheelZoom={false}
+        zoomSnap={0.25}
+        zoomDelta={1}
+        inertiaDeceleration={3000}
+        easeLinearity={0.2}
+        className="h-full w-full"
+        style={{ height: "100%", width: "100%" }}
+      >
+
 
       <TileLayer
         attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
@@ -292,13 +305,13 @@ export default function MapView({
       />
 
       {showWardOutlines && (
-        <GeoJSON
-          key={`wards-layer-${selectedWardId ?? searchSelectedWardId ?? "none"}`}
-          data={wardGeoJsonData}
-          style={wardStyle}
-          onEachFeature={onEachWard}
-        />
-      )}
+          <GeoJSON
+            key={`wards-layer-${selectedWardId ?? searchSelectedWardId ?? "none"}`}
+            data={wardGeoJsonData}
+            style={wardStyle}
+            onEachFeature={onEachWard}
+          />
+        )}
 
       <ZoomTracker onZoomChange={handleZoomChange} />
       <SmartWheelZoom />
@@ -375,6 +388,8 @@ export default function MapView({
                   fillColor: markerColor,
                   fillOpacity: 0.9,
                 }}
+                // Ensure badge text contrast
+                // Using white text for better readability on colored background
               >
                 <Tooltip direction="top" offset={[0, -8]} opacity={1} className="civic-tooltip" aria-label="Complaint tooltip">
                   {c.category} • {tooltipText}
@@ -396,9 +411,10 @@ export default function MapView({
                           variant="outline"
                           className="shrink-0 text-[10px]"
                           style={{
-                            borderColor: STATUS_COLOR[c.status],
-                            color: STATUS_COLOR[c.status],
-                          }}
+                              borderColor: STATUS_COLOR[c.status],
+                              backgroundColor: STATUS_COLOR[c.status],
+                              color: "#ffffff",
+                            }}
                         >
                           {c.status}
                         </Badge>
@@ -576,5 +592,6 @@ export default function MapView({
         })}
       </MarkerClusterGroup>
     </MapContainer>
+      </div>
   );
 }
