@@ -150,6 +150,16 @@ function ZoomTracker({ onZoomChange }: { onZoomChange: (z: number) => void }) {
   return null;
 }
 
+function MapInteractionTracker({ onInteractionChange }: { onInteractionChange: (v: boolean) => void }) {
+  useMapEvents({
+    dragstart: () => onInteractionChange(true),
+    zoomstart: () => onInteractionChange(true),
+    dragend: () => onInteractionChange(false),
+    zoomend: () => onInteractionChange(false),
+  });
+  return null;
+}
+
 function formatDate(date: Date) {
   return date.toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" });
 }
@@ -204,13 +214,7 @@ export default function MapView({
     setCurrentZoom(z);
   }, []);
 
-  // map interaction events for translucency
-  const mapEvents = useMapEvents({
-    dragstart: () => setIsInteracting(true),
-    zoomstart: () => setIsInteracting(true),
-    dragend: () => setIsInteracting(false),
-    zoomend: () => setIsInteracting(false),
-  });
+
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const wardStyle = (feature: any) => {
@@ -313,6 +317,7 @@ export default function MapView({
           />
         )}
 
+      <MapInteractionTracker onInteractionChange={setIsInteracting} />
       <ZoomTracker onZoomChange={handleZoomChange} />
       <SmartWheelZoom />
       <MapFlyTo target={mapTarget ?? null} />
