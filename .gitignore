@@ -33,3 +33,4 @@ dist-ssr
 .env.*.local
 .env*
 supabase/.temp/
+.netlify/
