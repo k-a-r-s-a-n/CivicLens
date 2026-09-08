@@ -1,4 +1,3 @@
-import "@/lib/global-window-polyfill";
 import { createFileRoute, Link } from "@tanstack/react-router";
 
 import { lazy, Suspense, useEffect, useMemo, useState, type KeyboardEvent } from "react";

@@ -48,7 +48,7 @@ export default defineConfig({
     tsconfigPaths: true,
   },
   ssr: {
-    external: ["leaflet", "react-leaflet", "@react-leaflet/core", "react-leaflet-cluster", "leaflet.markercluster"],
+    noExternal: ["leaflet", "react-leaflet", "@react-leaflet/core", "react-leaflet-cluster", "leaflet.markercluster"],
   },
   optimizeDeps: {
     include: ["react-leaflet", "@react-leaflet/core", "leaflet"],

@@ -1,4 +1,3 @@
-import "./lib/global-window-polyfill";
 import "./lib/error-capture";
 
 
