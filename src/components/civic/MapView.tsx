@@ -20,6 +20,8 @@ import { CHENNAI_CENTER, STATUS_COLOR, type Complaint } from "@/data/civic";
 import { GCC_BOUNDS, GCC_FEATURE, gccMaskFeature, isInsideGCC } from "@/lib/gccBoundary";
 import { zoneForArea } from "@/lib/gccWards";
 import { Badge } from "@/components/ui/badge";
+import { Switch } from "@/components/ui/switch";
+import WardSearch from "@/components/civic/WardSearch";
 import { Button } from "@/components/ui/button";
 
 // Fix Leaflet default marker icons
@@ -178,6 +180,8 @@ type Props = {
   selectedWardId?: number | null | undefined;
 };
 
+
+
 export default function MapView({
   complaints,
   onUpvote,
@@ -188,6 +192,8 @@ export default function MapView({
   selectedWardId,
 }: Props) {
   const [currentZoom, setCurrentZoom] = useState(12);
+  const [showWardOutlines, setShowWardOutlines] = useState(true);
+  const [searchSelectedWardId, setSearchSelectedWardId] = useState<number | null>(null);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const wardGeoJsonData = useMemo(() => wardsJson as any, []);
 
@@ -197,7 +203,7 @@ export default function MapView({
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const wardStyle = (feature: any) => {
-    const isSelected = selectedWardId && feature?.properties?.ward === selectedWardId;
+    const isSelected = (selectedWardId ?? searchSelectedWardId) && feature?.properties?.ward === (selectedWardId ?? searchSelectedWardId);
     return {
       fillColor: isSelected ? "#3b82f6" : "#94a3b8",
       fillOpacity: isSelected ? 0.35 : 0.04,
@@ -211,8 +217,10 @@ export default function MapView({
     const wardNum = feature.properties?.ward;
     const wardName = feature.properties?.name || `Ward ${wardNum}`;
     const zoneName = feature.properties?.zone_name || "";
-
-    layer.bindTooltip(`<b>${wardName}</b><br/>Zone: ${zoneName}`, {
+    const resolutionRate = feature.properties?.resolution_rate ?? null;
+    const rateText = resolutionRate === null ? "No activity" : `${resolutionRate}%`;
+    const tooltipContent = `<b>${wardName}</b><br/>Zone: ${zoneName}<br/>Resolution Rate: ${rateText}`;
+    layer.bindTooltip(tooltipContent, {
       sticky: true,
       direction: "top",
       className: "rounded-md border bg-popover px-2 py-1 text-xs text-popover-foreground shadow-sm",
@@ -221,7 +229,7 @@ export default function MapView({
     layer.on({
       mouseover: (e) => {
         const l = e.target;
-        if (feature.properties?.ward !== selectedWardId) {
+        if (feature.properties?.ward !== (selectedWardId ?? searchSelectedWardId)) {
           l.setStyle({
             fillColor: "#3b82f6",
             fillOpacity: 0.18,
@@ -231,7 +239,7 @@ export default function MapView({
       },
       mouseout: (e) => {
         const l = e.target;
-        if (feature.properties?.ward !== selectedWardId) {
+        if (feature.properties?.ward !== (selectedWardId ?? searchSelectedWardId)) {
           l.setStyle(wardStyle(feature));
         }
       },
@@ -253,6 +261,18 @@ export default function MapView({
       className="h-full w-full"
       style={{ height: "100%", width: "100%" }}
     >
+      <div className="absolute top-2 right-2 z-10 flex flex-col gap-2 bg-white/80 p-2 rounded shadow-md">
+          <label className="flex items-center space-x-2">
+            <Switch
+              checked={showWardOutlines}
+              onCheckedChange={setShowWardOutlines}
+              aria-label="Toggle ward outlines"
+            />
+            <span className="text-sm font-medium">Show Ward Outlines</span>
+          </label>
+          <WardSearch onSelectWard={(wardId: number) => setSearchSelectedWardId(wardId)} />
+        </div>
+
       <TileLayer
         attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
         url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
@@ -270,17 +290,19 @@ export default function MapView({
         style={{ color: "#0f766e", weight: 2.5, fill: false }}
       />
 
-      <GeoJSON
-        key={`wards-layer-${selectedWardId ?? "none"}`}
-        data={wardGeoJsonData}
-        style={wardStyle}
-        onEachFeature={onEachWard}
-      />
+      {showWardOutlines && (
+        <GeoJSON
+          key={`wards-layer-${selectedWardId ?? searchSelectedWardId ?? "none"}`}
+          data={wardGeoJsonData}
+          style={wardStyle}
+          onEachFeature={onEachWard}
+        />
+      )}
 
       <ZoomTracker onZoomChange={handleZoomChange} />
       <SmartWheelZoom />
       <MapFlyTo target={mapTarget ?? null} />
-      <WardFlyToHandler selectedWardId={selectedWardId ?? null} />
+      <WardFlyToHandler selectedWardId={selectedWardId ?? searchSelectedWardId ?? null} />
       <ClickCatcher onPick={onPickLocation} />
 
       {/* Draft pick pin — never clustered */}
@@ -300,6 +322,7 @@ export default function MapView({
         spiderfyOnMaxZoom
         disableClusteringAtZoom={16}
         spiderfyDistanceMultiplier={1.2}
+        aria-label={"Clustered complaints layer"}
       >
         {complaints.map((c) => {
           const isSlaBreached =
@@ -352,10 +375,10 @@ export default function MapView({
                   fillOpacity: 0.9,
                 }}
               >
-                <Tooltip direction="top" offset={[0, -8]} opacity={1} className="civic-tooltip">
+                <Tooltip direction="top" offset={[0, -8]} opacity={1} className="civic-tooltip" aria-label="Complaint tooltip">
                   {c.category} • {tooltipText}
                 </Tooltip>
-                <Popup minWidth={350} maxWidth={350}>
+                <Popup minWidth={350} maxWidth={350} aria-label="Complaint details">
                   <div className="w-[350px] divide-y divide-border bg-white text-foreground">
                     <div className="space-y-2 p-4">
                       <p className="font-mono text-[10px] tracking-wider text-muted-foreground uppercase">

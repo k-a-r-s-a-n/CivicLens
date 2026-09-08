@@ -195,9 +195,9 @@ export function formatDay(value: string): string {
 }
 
 export const STATUS_COLOR: Record<ComplaintStatus, string> = {
-  Unresolved: "#dc2626",
-  "In Progress": "#eab308",
-  Resolved: "#16a34a",
+  Unresolved: "#8B0000",
+  "In Progress": "#B8860B",
+  Resolved: "#006400",
 };
 
 export function wardStatus(rate: number | null): {
