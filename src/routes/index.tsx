@@ -1,4 +1,6 @@
+import "@/lib/global-window-polyfill";
 import { createFileRoute, Link } from "@tanstack/react-router";
+
 import { lazy, Suspense, useEffect, useMemo, useState, type KeyboardEvent } from "react";
 import { Flag, HelpCircle, Inbox, MapPin, Navigation, Plus, Search, X } from "lucide-react";
 import { toast } from "sonner";
