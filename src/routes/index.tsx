@@ -25,7 +25,8 @@ import { preloadAppData } from "@/lib/appData";
 import { isInsideGCC } from "@/lib/gccBoundary";
 import { SplashScreen, useSplash } from "@/components/civic/SplashScreen";
 
-const MapView = lazy(() => import("@/components/civic/MapView"));
+// MapView is imported dynamically in a useEffect to prevent SSR crashes (Leaflet requires window)
+let MapViewPromise: Promise<any> | null = null;
 
 // Auto-hide resolved pins from the map after 7 days.
 // They still exist in the DB and still count toward Ward stats.
@@ -56,6 +57,7 @@ export const Route = createFileRoute("/")({
 function Index() {
   const splash = useSplash();
   const [mounted, setMounted] = useState(false);
+  const [MapViewComponent, setMapViewComponent] = useState<any>(null);
   const [view, setView] = useState<"map" | "dashboard">("map");
   const [complaints, setComplaints] = useState<Complaint[]>([]);
   const [category, setCategory] = useState("All");
@@ -73,7 +75,13 @@ function Index() {
   // or shortly after first paint if the splash was skipped this session.
   useEffect(() => {
     if (!mounted && (splash.exiting || !splash.mounted)) {
-      const t = setTimeout(() => setMounted(true), splash.mounted ? 0 : 200);
+      const t = setTimeout(() => {
+        setMounted(true);
+        if (!MapViewPromise) {
+          MapViewPromise = import("@/components/civic/MapView");
+        }
+        MapViewPromise.then((mod) => setMapViewComponent(() => mod.default));
+      }, splash.mounted ? 0 : 200);
       return () => clearTimeout(t);
     }
     return undefined;
@@ -502,9 +510,9 @@ function Index() {
                     onMouseEnter={() => setMapHovered(true)}
                     onMouseLeave={() => setMapHovered(false)}
                   >
-                    {mounted ? (
+                    {mounted && MapViewComponent ? (
                       <Suspense fallback={<MapSkeleton />}>
-                        <MapView
+                        <MapViewComponent
                           complaints={mapComplaints}
                           onUpvote={upvote}
                           upvotedIds={upvotedIds}
