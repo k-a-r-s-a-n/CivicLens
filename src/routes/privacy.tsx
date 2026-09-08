@@ -1,7 +1,6 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { ArrowLeft, ShieldCheck } from "lucide-react";
+import { ArrowLeft, ShieldCheck, Lock, MapPin, Camera, Server } from "lucide-react";
 
-// @ts-ignore
 export const Route = createFileRoute("/privacy")({
   component: Privacy,
 });
@@ -25,45 +24,73 @@ function Privacy() {
               Live map
             </Link>
             <Link
-              to="/"
-              hash="dashboard"
+              to="/about"
               className="rounded-full px-3 py-1.5 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
             >
-              Ward view
-            </Link>
-            <Link to="/about" className="rounded-full bg-primary/10 px-3 py-1.5 text-primary">
               About CivicLens
+            </Link>
+            <Link
+              to="/privacy"
+              className="rounded-full bg-primary/10 px-3 py-1.5 text-primary font-medium"
+            >
+              Privacy
             </Link>
           </nav>
         </div>
       </header>
 
-      <main className="px-4 py-16 sm:px-6 sm:py-24">
+      <main className="px-4 py-12 sm:px-6 sm:py-16">
         <section className="mx-auto max-w-3xl">
-          <h1 className="mb-6 text-3xl font-bold text-primary">Privacy Policy</h1>
-          <p className="mb-4 text-muted-foreground">
-            CivicLens is a citizen‑run transparency platform. Your privacy is important to us. Below we outline what data we collect, how it is stored, and your rights.
+          <div className="inline-flex items-center gap-2 rounded-full border border-primary/20 bg-primary/10 px-3 py-1 text-xs font-semibold text-primary">
+            <ShieldCheck className="size-3.5" />
+            Zero-PII Notice
+          </div>
+          <h1 className="mt-3 mb-4 text-3xl font-bold text-primary font-display sm:text-4xl">
+            Privacy Policy
+          </h1>
+          <p className="mb-6 text-sm leading-relaxed text-muted-foreground sm:text-base">
+            CivicLens is a citizen‑run transparency platform. Your privacy is protected by design. Below we outline what data we collect, how it is stored, and your rights.
           </p>
-          <h2 className="mt-6 text-2xl font-semibold text-primary">What we collect</h2>
-          <ul className="list-disc pl-6 text-muted-foreground">
-            <li>Complaint details: title, description, category, location (lat/lng), photos (optional).</li>
-            <li>Metadata: timestamps, ward/zone, status, up‑vote count.</li>
-            <li>Optional identifiers you provide (e.g., name, fingerprint for up‑vote tracking).</li>
-          </ul>
-          <h2 className="mt-6 text-2xl font-semibold text-primary">How we store data</h2>
-          <p className="text-muted-foreground">
-            All data is stored in Supabase (PostgreSQL) and public object storage. Images are stored in a publicly readable bucket, which allows anyone to view them via their URL. No phone numbers, email addresses, or other personally identifiable information are required.
-          </p>
-          <h2 className="mt-6 text-2xl font-semibold text-primary">Your rights</h2>
-          <ul className="list-disc pl-6 text-muted-foreground">
-            <li>You may delete your own complaint via the app – this removes the row from the database and the photos from storage.</li>
-            <li>You can request the removal of any content you own by contacting the project maintainers.</li>
-            <li>All data is openly accessible; if you wish to keep a complaint private, simply do not submit it.</li>
-          </ul>
-          <h2 className="mt-6 text-2xl font-semibold text-primary">Security</h2>
-          <p className="text-muted-foreground">
-            Uploaded images are served over HTTPS. The Supabase bucket enforces CORS headers so images can be embedded safely. We do not store any authentication tokens client‑side beyond a temporary fingerprint for up‑votes.
-          </p>
+
+          <div className="space-y-6">
+            <div className="rounded-xl border border-border bg-card p-5">
+              <h2 className="flex items-center gap-2 text-xl font-semibold text-primary">
+                <Lock className="size-4 text-primary" /> What we collect
+              </h2>
+              <ul className="mt-3 list-disc pl-5 text-sm leading-relaxed text-muted-foreground space-y-1">
+                <li><strong>Complaint details:</strong> title, description, category, and public location coordinates (lat/long).</li>
+                <li><strong>Metadata:</strong> timestamps, ward/zone, status, and community verification count.</li>
+                <li><strong>Photos:</strong> uploaded complaint proof photos are stored publicly to verify civic issues.</li>
+                <li><strong>Zero Personal Data:</strong> No phone numbers, no email addresses, and no user accounts are required.</li>
+              </ul>
+            </div>
+
+            <div className="rounded-xl border border-border bg-card p-5">
+              <h2 className="flex items-center gap-2 text-xl font-semibold text-primary">
+                <Server className="size-4 text-primary" /> How we store data
+              </h2>
+              <p className="mt-3 text-sm leading-relaxed text-muted-foreground">
+                All data is stored in Supabase (PostgreSQL) and public object storage. Images are stored in a publicly readable bucket (<code>complaint-photos</code>), allowing anyone to verify reports.
+              </p>
+            </div>
+
+            <div className="rounded-xl border border-border bg-card p-5">
+              <h2 className="flex items-center gap-2 text-xl font-semibold text-primary">
+                <MapPin className="size-4 text-primary" /> Upvote Anti-Tamper Token
+              </h2>
+              <p className="mt-3 text-sm leading-relaxed text-muted-foreground">
+                A random device fingerprint is stored locally in your browser strictly to prevent duplicate upvotes on the same complaint. It is never linked to your identity or personal browsing history.
+              </p>
+            </div>
+
+            <div className="rounded-xl border border-border bg-card p-5">
+              <h2 className="text-xl font-semibold text-primary">Your rights & Content Removal</h2>
+              <ul className="mt-3 list-disc pl-5 text-sm leading-relaxed text-muted-foreground space-y-1">
+                <li>You can request the removal of any content you filed by reaching out to the student maintainers.</li>
+                <li>All complaint data is public record; if you wish to keep an issue private, please do not submit it.</li>
+              </ul>
+            </div>
+          </div>
         </section>
       </main>
 
@@ -74,7 +101,7 @@ function Privacy() {
             Built in the spirit of FixMyStreet UK (citizen‑built in 2008, government‑adopted in 2013) and NYC 311 (saves $300M annually). India&apos;s turn. This is an independent student project, not an official government service.
           </p>
         </div>
-        <div className="mx-auto mt-4 max-w-5xl flex gap-4">
+        <div className="mx-auto mt-4 max-w-5xl">
           <Link
             to="/"
             className="inline-flex items-center gap-1.5 text-sm font-medium text-primary hover:text-accent"

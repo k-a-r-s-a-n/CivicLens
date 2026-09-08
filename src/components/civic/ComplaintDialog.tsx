@@ -24,6 +24,12 @@ import {
 import { CATEGORIES, CATEGORY_TREE, type Complaint } from "@/data/civic";
 import { wardFor } from "@/lib/gccWards";
 
+declare global {
+  interface Window {
+    turnstile: any;
+  }
+}
+
 type Props = {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -34,6 +40,7 @@ type Props = {
     c: Omit<Complaint, "id" | "upvotes" | "date" | "status"> & {
       imageUrl?: string | undefined;
       reporterFingerprint?: string | undefined;
+      turnstileToken?: string | undefined;
     },
   ) => boolean | void | Promise<boolean | void>;
 };
@@ -79,11 +86,24 @@ export function ComplaintDialog({
     "self_reported",
   );
   const [photoGps, setPhotoGps] = useState<{ lat: number; lng: number } | null>(null);
+  const [turnstileToken, setTurnstileToken] = useState<string | null>(null);
 
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const turnstileRef = useRef<HTMLDivElement | null>(null);
   const pickedWard = useMemo(() => (picked ? wardFor(picked.lat, picked.lng) : null), [picked]);
 
   const subTypes = CATEGORY_TREE[category];
+
+  useEffect(() => {
+    if (open && turnstileRef.current && window.turnstile) {
+      window.turnstile.render(turnstileRef.current, {
+        sitekey: (import.meta.env["VITE_TURNSTILE_SITE_KEY"] as string) || "1x00000000000000000000AA",
+        callback: (token: string) => {
+          setTurnstileToken(token);
+        },
+      });
+    }
+  }, [open]);
 
   const canSubmit =
     title.trim().length >= 3 &&
@@ -95,7 +115,8 @@ export function ComplaintDialog({
     photoAttached &&
     !verificationError &&
     !isAnalyzing &&
-    !isSubmitting;
+    !isSubmitting &&
+    !!turnstileToken;
 
   useEffect(() => {
     if (photoGps && picked) {
@@ -209,6 +230,8 @@ Allowed categories: [${allowedCategoriesList}]`;
           promptText,
           categories: allowedCategoriesList,
           fingerprint: fingerprint,
+          lat: picked.lat,
+          lng: picked.lng,
         }),
       });
 
@@ -299,7 +322,8 @@ Allowed categories: [${allowedCategoriesList}]`;
 
       const payload: Omit<Complaint, "id" | "upvotes" | "date" | "status"> & {
         imageUrl?: string | undefined;
-        reporterFingerprint?: string;
+        reporterFingerprint?: string | undefined;
+        turnstileToken?: string | undefined;
       } = {
         title: title.trim(),
         description: description.trim(),
@@ -310,6 +334,7 @@ Allowed categories: [${allowedCategoriesList}]`;
         reporter: reporter.trim().slice(0, 80) || "Anonymous",
         locationTrust,
         reporterFingerprint: fingerprint,
+        turnstileToken: turnstileToken || undefined,
       };
 
       if (subType.trim()) payload.subType = subType.trim();
@@ -532,6 +557,8 @@ Allowed categories: [${allowedCategoriesList}]`;
               maxLength={80}
             />
           </div>
+
+          <div ref={turnstileRef} className="flex justify-center py-2" />
         </div>
 
         <DialogFooter>

@@ -41,7 +41,11 @@ type EnhancedWard = Ward & {
   idStr: string;
 };
 
-export function WardDashboard() {
+type Props = {
+  initialWardId?: string | null;
+};
+
+export function WardDashboard({ initialWardId }: Props) {
   const [wards, setWards] = useState<Ward[]>([]);
   const [search, setSearch] = useState("");
   const [selectedZone, setSelectedZone] = useState("All");
@@ -50,8 +54,15 @@ export function WardDashboard() {
   // State
   const [trendWindow, setTrendWindow] = useState<"Daily" | "Weekly" | "Monthly">("Weekly");
   const [myWardId, setMyWardId] = useState<string | null>(() =>
-    localStorage.getItem("civiclens:myWard"),
+    initialWardId ?? localStorage.getItem("civiclens:myWard"),
   );
+
+  useEffect(() => {
+    if (initialWardId) {
+      setMyWardId(initialWardId);
+      localStorage.setItem("civiclens:myWard", initialWardId);
+    }
+  }, [initialWardId]);
   const [wardSearch, setWardSearch] = useState("");
   const [isWardSearchFocused, setIsWardSearchFocused] = useState(false);
   const [showDetailedChart, setShowDetailedChart] = useState(false);

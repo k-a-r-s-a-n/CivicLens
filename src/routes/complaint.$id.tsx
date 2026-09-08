@@ -74,6 +74,12 @@ function Header() {
           >
             About CivicLens
           </Link>
+          <Link
+            to="/privacy"
+            className="rounded-full px-3 py-1.5 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+          >
+            Privacy
+          </Link>
         </nav>
       </div>
     </header>

@@ -12,7 +12,9 @@ import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as AboutRouteImport } from './routes/about'
 import { Route as PrivacyRouteImport } from './routes/privacy'
+import { Route as WardRouteImport } from './routes/ward'
 import { Route as ComplaintIdRouteImport } from './routes/complaint.$id'
+import { Route as WardIdRouteImport } from './routes/ward.$id'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
@@ -29,43 +31,68 @@ const PrivacyRoute = PrivacyRouteImport.update({
   path: '/privacy',
   getParentRoute: () => rootRouteImport,
 } as any)
+const WardRoute = WardRouteImport.update({
+  id: '/ward',
+  path: '/ward',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ComplaintIdRoute = ComplaintIdRouteImport.update({
   id: '/complaint/$id',
   path: '/complaint/$id',
   getParentRoute: () => rootRouteImport,
+} as any)
+const WardIdRoute = WardIdRouteImport.update({
+  id: '/$id',
+  path: '/$id',
+  getParentRoute: () => WardRoute,
 } as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/about': typeof AboutRoute
   '/privacy': typeof PrivacyRoute
+  '/ward': typeof WardRouteWithChildren
   '/complaint/$id': typeof ComplaintIdRoute
+  '/ward/$id': typeof WardIdRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/about': typeof AboutRoute
   '/privacy': typeof PrivacyRoute
+  '/ward': typeof WardRouteWithChildren
   '/complaint/$id': typeof ComplaintIdRoute
+  '/ward/$id': typeof WardIdRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/about': typeof AboutRoute
   '/privacy': typeof PrivacyRoute
+  '/ward': typeof WardRouteWithChildren
   '/complaint/$id': typeof ComplaintIdRoute
+  '/ward/$id': typeof WardIdRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/about' | '/privacy' | '/complaint/$id'
+  fullPaths:
+    '/' | '/about' | '/privacy' | '/ward' | '/complaint/$id' | '/ward/$id'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/about' | '/privacy' | '/complaint/$id'
-  id: '__root__' | '/' | '/about' | '/privacy' | '/complaint/$id'
+  to: '/' | '/about' | '/privacy' | '/ward' | '/complaint/$id' | '/ward/$id'
+  id:
+    | '__root__'
+    | '/'
+    | '/about'
+    | '/privacy'
+    | '/ward'
+    | '/complaint/$id'
+    | '/ward/$id'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   AboutRoute: typeof AboutRoute
   PrivacyRoute: typeof PrivacyRoute
+  WardRoute: typeof WardRouteWithChildren
   ComplaintIdRoute: typeof ComplaintIdRoute
 }
 
@@ -92,6 +119,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof PrivacyRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/ward': {
+      id: '/ward'
+      path: '/ward'
+      fullPath: '/ward'
+      preLoaderRoute: typeof WardRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/complaint/$id': {
       id: '/complaint/$id'
       path: '/complaint/$id'
@@ -99,13 +133,31 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ComplaintIdRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/ward/$id': {
+      id: '/ward/$id'
+      path: '/$id'
+      fullPath: '/ward/$id'
+      preLoaderRoute: typeof WardIdRouteImport
+      parentRoute: typeof WardRoute
+    }
   }
 }
+
+interface WardRouteChildren {
+  WardIdRoute: typeof WardIdRoute
+}
+
+const WardRouteChildren: WardRouteChildren = {
+  WardIdRoute: WardIdRoute,
+}
+
+const WardRouteWithChildren = WardRoute._addFileChildren(WardRouteChildren)
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   AboutRoute: AboutRoute,
   PrivacyRoute: PrivacyRoute,
+  WardRoute: WardRouteWithChildren,
   ComplaintIdRoute: ComplaintIdRoute,
 }
 export const routeTree = rootRouteImport

@@ -14,6 +14,7 @@ import * as Sentry from "@sentry/react";
 
 import appCss from "../styles.css?url";
 import { Toaster } from "@/components/ui/sonner";
+import { LanguageProvider } from "@/lib/i18n";
 
 function initSentry() {
   const dsn = import.meta.env["VITE_SENTRY_DSN"] as string | undefined;
@@ -124,6 +125,13 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
       { rel: "manifest", href: "/manifest.webmanifest" },
       { rel: "apple-touch-icon", href: "/pwa-192.png" },
     ],
+    scripts: [
+      {
+        src: "https://challenges.cloudflare.com/turnstile/v0/api.js",
+        async: true,
+        defer: true,
+      },
+    ],
   }),
 
   shellComponent: RootShell,
@@ -155,7 +163,9 @@ function RootComponent() {
 
   return (
     <QueryClientProvider client={queryClient}>
-      <Outlet />
+      <LanguageProvider>
+        <Outlet />
+      </LanguageProvider>
       <Toaster position="top-center" richColors />
     </QueryClientProvider>
   );

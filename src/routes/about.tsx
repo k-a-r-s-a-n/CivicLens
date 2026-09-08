@@ -80,6 +80,12 @@ function About() {
             <Link to="/about" className="rounded-full bg-primary/10 px-3 py-1.5 text-primary">
               About CivicLens
             </Link>
+            <Link
+              to="/privacy"
+              className="rounded-full px-3 py-1.5 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+            >
+              Privacy
+            </Link>
           </nav>
         </div>
       </header>
@@ -206,13 +212,16 @@ function About() {
             student project, not an official government service.
           </p>
         </div>
-        <div className="mx-auto mt-4 max-w-5xl">
+        <div className="mx-auto mt-4 flex max-w-5xl items-center justify-between">
           <Link
             to="/"
             className="inline-flex items-center gap-1.5 text-sm font-medium text-primary hover:text-accent"
           >
             <ArrowLeft className="size-4" />
             Back to CivicLens
+          </Link>
+          <Link to="/privacy" className="text-sm font-medium text-primary hover:text-accent">
+            Privacy policy
           </Link>
         </div>
       </footer>
